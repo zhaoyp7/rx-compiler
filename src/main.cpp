@@ -7,6 +7,8 @@
 #include "RxLexer.h"
 #include "RxParser.h"
 
+#include "ast/ast.h"
+
 int main(int argc, char** argv) {
     std::optional<Options> options = parseArgs(argc, argv);
     if (!options) {
