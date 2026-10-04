@@ -1,3 +1,4 @@
+#include <iostream>
 #include <optional>
 #include <string>
 
@@ -7,7 +8,8 @@
 #include "RxLexer.h"
 #include "RxParser.h"
 
-#include "ast/ast.h"
+#include "ast/builder.h"
+#include "ast/dump.h"
 
 int main(int argc, char** argv) {
     std::optional<Options> options = parseArgs(argc, argv);
@@ -30,7 +32,7 @@ int main(int argc, char** argv) {
     parser.removeErrorListeners();
     parser.addErrorListener(&listener);
 
-    parser.crate();
+    RxParser::CrateContext* tree = parser.crate();
     if (listener.hasErrors()) {
         return 1;
     }
@@ -39,7 +41,14 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (options->stage == "ast") {
-        return 1;
+        rx::ASTBuilder builder;
+        rx::BuildResult result = builder.build(tree);
+        if (!result.ok) {
+            return 1;
+        }
+        rx::DumpVisitor dumper(std::cout);
+        dumper.dump(result.crate);
+        return 0;
     }
     if (options->stage == "semantic") {
         return 1;
