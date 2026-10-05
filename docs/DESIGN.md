@@ -1,7 +1,7 @@
 # Rx 编译器设计文档
 
 > 阶段一（AST + 语义）设计记录。本文件随阶段推进更新。
-> 当前进度：P1（AST 定义）完成，P2（AST 构建）未开始。
+> 当前进度：P1（AST 定义）完成，P2（AST 构建）进行中。
 
 ## 1. AST 总体设计
 
@@ -29,6 +29,8 @@ Crate { items: vector<ItemPtr> }   // AST 根，不继承 Node
 | `src/ast/ast.h` | SourceSpan、Node 基类、指针别名、枚举、公共小结构、全部节点 |
 | `src/ast/visitor.h` | `AstVisitor`，每个具体节点一个纯虚 `visit` |
 | `src/ast/const.cpp` / `type.cpp` / `expr.cpp` / `stmt.cpp` / `item.cpp` | 各节点 `accept` 实现（一行转发） |
+| `src/ast/builder.h` / `builder.cpp` | `ASTBuilder`：parse tree → Crate |
+| `src/ast/dump.h` / `dump.cpp` | `DumpVisitor`：AST → 缩进文本 |
 
 ### 遍历机制
 
@@ -68,125 +70,139 @@ Crate { items: vector<ItemPtr> }   // AST 根，不继承 Node
 | `&self` | Self | true | false | false |
 | `&mut self` | Self | true | true | false |
 
-## 3. 文法覆盖勾选表
+## 3. 规则映射总表
 
-说明：行号对应 `grammar/Parser.g4`。三类结果——**建节点**、**归一化到已有节点**、**明确丢弃**。
+每一行同时回答：这条文法规则**产出什么节点**、**用哪个 builder 函数**。行号对应 `grammar/Parser.g4`。
+
+状态图例：
+
+- **✅ 独立函数**：builder 里有对应职责的函数
+- **🔀 分发器**：按备选判空/分派，返回子 build 结果，自己不建节点
+- **🔁 合并**：多套规则进同一个函数的 case
+- **➖ 内联**：父函数直接读 context/token，不单独成函数
+- **⛔ 丢弃**：规范明确不处理
+- **❌ 纯解析辅助**：只为解析消歧存在，不产生 AST
 
 ### 3.1 顶层与 item
 
-| 产生式 | 行 | AST 结果 | 状态 |
-|---|---|---|---|
-| `crate` | 7 | `Crate{items}` | [x] |
-| `item` | 11 | FnDecl / StructDecl / ConstDecl / ImplDecl | [x] |
-| `useDeclaration` | 19 | 丢弃 | [x] |
-| `useTree` | 23 | 丢弃 | [x] |
-| `usePath` | 28 | 丢弃 | [x] |
-| `usePathSegment` | 32 | 丢弃 | [x] |
-| `functionDefinition` | 36 | `FnDecl{name, params, ret, body}` | [x] |
-| `functionParameters` | 41 | `vector<Param>` | [x] |
-| `selfParam` | 46 | `Param{kind=Self, byRef, byMutRef, mutBinding}` | [x] |
-| `functionParam` | 50 | `Param{kind=Value, name, type}` | [x] |
-| `structDefinition` | 54 | `StructDecl{name, derives, fields}` | [x] |
-| `structField` | 59 | `FieldDef{name, type}` | [x] |
-| `outerAttribute` | 63 | `Derives` | [x] |
-| `deriveName` | 68 | `Derives` 对应位 | [x] |
-| `constantItem` | 72 | `ConstDecl{name, type, value}` | [x] |
-| `inherentImpl` | 76 | `ImplDecl{target, members}` | [x] |
-| `associatedItem` | 80 | member 的 FnDecl / ConstDecl | [x] |
-| `genericParams` | 84 | 丢弃（lifetime） | [x] |
-| `lifetimeParam` | 88 | 丢弃 | [x] |
-| `lifetime` | 92 | 丢弃 | [x] |
-| `lifetimeBounds` | 96 | 丢弃 | [x] |
-| `typeParamBounds` | 100 | 丢弃 | [x] |
-| `whereClause` | 104 | 丢弃 | [x] |
-| `whereClauseItem` | 108 | 丢弃 | [x] |
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `crate` | 7 | `Crate{items}` | `buildCrate` | ✅ |
+| `item` | 11 | FnDecl / StructDecl / ConstDecl / ImplDecl | `buildItem` | 🔀 分发器 |
+| `useDeclaration` | 19 | — | — | ⛔ 规范：解析后整条丢弃 |
+| `useTree` | 23 | — | — | ⛔ |
+| `usePath` | 28 | — | — | ⛔ |
+| `usePathSegment` | 32 | — | — | ⛔ |
+| `functionDefinition` | 36 | `FnDecl{name, params, ret, body}` | `buildFunction` | ✅ |
+| `functionParameters` | 41 | `vector<Param>` | `buildParams` | ✅ |
+| `selfParam` | 46 | `Param{kind=Self}` | `buildSelfParam` | ✅ 只读 token |
+| `functionParam` | 50 | `Param{kind=Value}` | `buildParam` | ✅ |
+| `structDefinition` | 54 | `StructDecl{name, derives, fields}` | `buildStruct` | ✅ |
+| `structField` | 59 | `FieldDef{name, type}` | `buildFieldDef` | ✅ |
+| `outerAttribute` | 63 | `Derives` | `buildDerives` | ✅ |
+| `deriveName` | 68 | `Derives` 对应位 | — | ➖ `buildDerives` 读文本置位 |
+| `constantItem` | 72 | `ConstDecl{name, type, value}` | `buildConstItem` | ✅ |
+| `inherentImpl` | 76 | `ImplDecl{target, members}` | `buildImpl` | ✅ |
+| `associatedItem` | 80 | member 的 FnDecl / ConstDecl | — | ➖ `buildImpl` 转发 |
+| `genericParams` | 84 | — | — | ⛔ lifetime 语法丢弃 |
+| `lifetimeParam` | 88 | — | — | ⛔ |
+| `lifetime` | 92 | — | — | ⛔ |
+| `lifetimeBounds` | 96 | — | — | ⛔ |
+| `typeParamBounds` | 100 | — | — | ⛔ |
+| `whereClause` | 104 | — | — | ⛔ |
+| `whereClauseItem` | 108 | — | — | ⛔ |
 
 ### 3.2 类型与路径
 
-| 产生式 | 行 | AST 结果 | 状态 |
-|---|---|---|---|
-| `typeRef` | 113 | TypeSyntax（递归） | [x] |
-| `referenceType` | 121 | `RefType{mut, inner}`；`ANDAND` 拆两层 | [x] |
-| `arrayType` | 126 | `ArrayType{elem, len}` | [x] |
-| `typePath` | 130 | `PathType{segments}` | [x] |
-| `typePathSegment` | 134 | `PathSegment{name, genericArgs}` | [x] |
-| `pathInExpression` | 138 | `PathExpr{segments}`（也可作为 StructLit / callee） | [x] |
-| `pathExprSegment` | 142 | `PathSegment` | [x] |
-| `pathIdentSegment` | 146 | `PathSegment{name, kind}`（Ident/SelfValue/SelfType） | [x] |
-| `genericArgs` | 150 | `PathSegment::genericArgs`（type 实参保留） | [x] |
-| `genericArg` | 154 | TypePtr；lifetime 实参丢弃 | [x] |
-| `genericClose` | 158 | 仅解析消歧，无节点 | [x] |
-| `closedCastType` | 164 | 仅解析消歧，结果落到 `CastExpr::type` | [x] |
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `typeRef` | 113 | UnitType / ParenType / PathType / RefType / ArrayType | `buildType` | 🔀 分发器 |
+| `referenceType` | 121 | `RefType{mut, inner}` | `buildReferenceType` | ✅ `&&` 拆两层 |
+| `arrayType` | 126 | `ArrayType{elem, len}` | `buildArrayType` | ✅ len 调 `buildConst` |
+| `typePath` | 130 | `PathType{segments}` | `buildPathType` | ✅ |
+| `typePathSegment` | 134 | `PathSegment{name, genericArgs}` | — | ➖ `buildTypePathSegments` |
+| `pathInExpression` | 138 | `PathExpr{segments}` | `buildPathSegments` | ✅ 复用（StructLit/callee） |
+| `pathExprSegment` | 142 | `PathSegment` | — | ➖ |
+| `pathIdentSegment` | 146 | `PathSegment{name, kind}` | — | ➖ 读文本 + 判 Self/self |
+| `genericArgs` | 150 | `vector<TypePtr>` | `buildGenericArgs` | ✅ |
+| `genericArg` | 154 | `TypePtr`（lifetime 丢弃） | — | ➖ type 实参递归 `buildType` |
+| `genericClose` | 158 | — | — | ❌ 只是 `>` 的拼装 token |
+| `closedCastType` | 164 | TypeSyntax（closed cast 形态） | — | 🔁 合并进 `buildType`/`buildCast` |
 
 ### 3.3 常量
 
-| 产生式 | 行 | AST 结果 | 状态 |
-|---|---|---|---|
-| `constValue` | 171 | ConstInt / ConstBool / ConstPath / ConstNeg | [x] |
-| `magnitude` | 180 | ConstInt / ConstPath（`ConstNeg` 的操作数） | [x] |
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `constValue` | 171 | ConstInt / ConstBool / ConstPath / ConstNeg | `buildConst` | ✅ |
+| `magnitude` | 180 | ConstInt / ConstPath | — | ➖ `buildConst` 处理 `ConstNeg` 操作数 |
+| `identifierBinding` | 184 | LetStmt / Param 的 name+mut | — | ➖ `buildLet`/`buildParam` 读取 |
 
 ### 3.4 语句与块
 
-| 产生式 | 行 | AST 结果 | 状态 |
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `letStatement` | 188 | `LetStmt{mut, name, type, init}` | `buildLet` | ✅ |
+| `blockExpression` | 192 | `BlockExpr{stmts, tail}` | `buildBlock` | ✅ 含 tail 判断 |
+| `statement` | 196 | LetStmt / ExprStmt；空 `;` 丢弃 | `buildStmt` | 🔀 分发器 |
+| `expressionWithBlock` | 203 | BlockExpr / IfExpr / LoopExpr / WhileExpr | — | ➖ `buildPrimary`/`buildStmt` 内 |
+| `ifExpression` | 210 | `IfExpr{cond, then, elseBranch}` | — | ➖ `buildPrimary` 内 |
+
+### 3.5 表达式主链
+
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `expression` | 218 | Expr | `buildExpr` | 🔀 统一入口/分发 |
+| `assignmentExpression` | 222 | `AssignExpr{op, lhs, rhs}` | `buildAssignment` | ✅ 右结合 |
+| `logicalOrExpression` | 226 | `BinaryExpr{LOr}` | `foldBinary` | 🔁 |
+| `logicalAndExpression` | 230 | `BinaryExpr{LAnd}` | `foldBinary` | 🔁 |
+| `comparisonExpression` | 234 | `BinaryExpr{Eq/Ne/Lt/Le/Gt/Ge}` | `buildComparison` | ✅ 单运算符 |
+| `bitOrExpression` / `closedBitOrExpression` | 239 / 243 | `BinaryExpr{BitOr}` | `foldBinary` | 🔁 |
+| `bitXorExpression` / `closedBitXorExpression` | 247 / 251 | `BinaryExpr{BitXor}` | `foldBinary` | 🔁 |
+| `bitAndExpression` / `closedBitAndExpression` | 255 / 259 | `BinaryExpr{BitAnd}` | `foldBinary` | 🔁 |
+| `shiftExpression` / `closedShiftExpression` | 263 / 267 | `BinaryExpr{Shl/Shr}` | `foldBinary` | 🔁 `shiftRight` 可能是规则节点 |
+| `additiveExpression` / `closedAdditiveExpression` | 271 / 275 | `BinaryExpr{Add/Sub}` | `foldBinary` | 🔁 |
+| `multiplicativeExpression` / `closedMultiplicativeExpression` | 279 / 283 | `BinaryExpr{Mul/Div/Rem}` | `foldBinary` | 🔁 |
+| `castExpression` / `closedCastExpression` | 287 / 291 | `CastExpr{expr, type}` | `buildCast` | 🔁 可链式 |
+| `unaryExpression` | 296 | `UnaryExpr{op, operand}` | `buildUnary` | ✅ |
+| `postfixExpression` | 301 | Call / Index / Field / MethodCall 链 | `buildPostfix` | ✅ |
+
+### 3.6 影子规则族（🔁 合并，不单独写）
+
+| 规则族 | 行范围 | 目标节点 | 合并进 |
 |---|---|---|---|
-| `identifierBinding` | 184 | LetStmt / Param 的 `name` + `mut` | [x] |
-| `letStatement` | 188 | `LetStmt{mut, name, type, init}` | [x] |
-| `blockExpression` | 192 | `BlockExpr{stmts, tail}` | [x] |
-| `statement` | 196 | LetStmt / ExprStmt；空 `;` 丢弃 | [x] |
-| `expressionWithBlock` | 203 | BlockExpr / IfExpr / LoopExpr / WhileExpr | [x] |
-| `ifExpression` | 210 | `IfExpr{cond, then, elseBranch}` | [x] |
+| `conditionExpression` 及 `condition*`（21 条） | 306-393 | 对应普通表达式节点 | `buildExpr` 分发 + 同级函数 |
+| `conditionBreak*`（19 条） | 395-492 | 同上 | 同上 |
+| `statementExpression` 及 `statement*`（20 条） | 494-592 | 同上；`statementPostfixExpression` 的 `expressionWithBlock dotSuffix` 分支特判 | `buildPostfix` 判定 |
+| `conditionPrimary` / `conditionPrimaryWithoutBareBlock` | 611 / 618 | 同 `primaryExpression` | `buildPrimary` |
 
-### 3.5 表达式主链（普通优先级）
+原因：与主链是同一套语法、不同解析入口，`buildExpr` 的 rule-index switch 把它们放进同一个 case。
 
-| 产生式 | 行 | AST 结果 | 状态 |
-|---|---|---|---|
-| `expression` | 218 | Expr | [x] |
-| `assignmentExpression` | 222 | `AssignExpr{op, lhs, rhs}` | [x] |
-| `logicalOrExpression` | 226 | `BinaryExpr{LOr}` | [x] |
-| `logicalAndExpression` | 230 | `BinaryExpr{LAnd}` | [x] |
-| `comparisonExpression` | 234 | `BinaryExpr{Eq/Ne/Lt/Le/Gt/Ge}` | [x] |
-| `bitOrExpression` / `bitXorExpression` / `bitAndExpression` | 239 / 247 / 255 | `BinaryExpr{BitOr/BitXor/BitAnd}` | [x] |
-| `shiftExpression` | 263 | `BinaryExpr{Shl/Shr}` | [x] |
-| `additiveExpression` | 271 | `BinaryExpr{Add/Sub}` | [x] |
-| `multiplicativeExpression` | 279 | `BinaryExpr{Mul/Div/Rem}` | [x] |
-| `castExpression` | 287 | `CastExpr`（链式可嵌套） | [x] |
-| `unaryExpression` | 296 | `UnaryExpr{op, operand}` | [x] |
-| `postfixExpression` | 301 | 链式 Call / Index / Field / MethodCall | [x] |
-| `primaryExpression` / `nonBlockPrimary` | 594 / 599 | 字面量 / 路径 / StructLit / 数组 / break / return / continue / 块类 | [x] |
+### 3.7 primary / 后缀 / 运算符 / 叶子
 
-### 3.6 影子规则族（归一化，不建新节点）
+| 规则 | 行 | 目标节点 | builder | 状态/备注 |
+|---|---|---|---|---|
+| `primaryExpression` | 594 | 字面量 / 路径 / StructLit / 数组 / 控制流 | `buildPrimary` | ✅ |
+| `nonBlockPrimary` | 599 | 同上 | — | ➖ `buildPrimary` 内联 |
+| `literalExpression` | 631 | `IntLit` / `BoolLit` | — | ➖ `buildPrimary` 内 |
+| `structExprFields` / `structExprField` | 635 / 639 | `vector<FieldInit>` | — | ➖ `buildPrimary` 的 StructLit 部分 |
+| `arrayExpression` | 643 | `ArrayLit` / `ArrayRepeat` | — | ➖ `buildPrimary` 的数组部分 |
+| `postfixSuffix` | 647 | Call / Index / dot 链 | — | ➖ `buildPostfix` 循环内 |
+| `dotSuffix` | 653 | `MethodCallExpr` / `FieldAccessExpr` | — | ➖ 带参数→MethodCall，否则 FieldAccess |
+| `callArguments` | 658 | `args` | — | ➖ `buildPostfix`/调用实参 |
+| `unaryOperator` | 662 | `UnaryOp` | — | ➖ `buildUnary` 读 token；`ANDAND` 拆两层 |
+| `multiplicativeOperator` / `additiveOperator` | 666 / 670 | `BinaryOp` | — | ➖ `foldBinary` 的 op 映射表 |
+| `shiftRight` | 676 | `BinaryOp::Shr` | — | ➖ `foldBinary` 识别 |
+| `comparisonExceptLt` | 680 | `BinaryOp` 比较族 | — | ➖ `buildComparison` 的 op 映射 |
+| `assignmentOperator` / `equalsSign` | 684 / 690 | `AssignOp` | — | ➖ `buildAssignment` 的 op 映射 |
+| `identifier` | 695 | 名字字符串 | — | ➖ 各构造器直接 `getText()` |
 
-| 产生式族 | 行范围 | 归一化为 | 状态 |
-|---|---|---|---|
-| `closedBitOrExpression` … `closedCastExpression`（8 条） | 243-291 | 对应普通规则节点 | [x] |
-| `conditionExpression` 及 `condition*`（21 条） | 306-393 | 对应普通表达式节点 | [x] |
-| `conditionBreak*`（19 条） | 395-492 | 对应普通表达式节点 | [x] |
-| `statementExpression` 及 `statement*`（20 条） | 494-592 | 对应普通表达式节点；`statementPostfixExpression` 允许 `expressionWithBlock` 后接 `dotSuffix` | [x] |
-| `conditionPrimary` / `conditionPrimaryWithoutBareBlock` | 611 / 618 | 与 `primaryExpression` 相同 | [x] |
+### 3.8 汇总
 
-### 3.7 叶子与工具规则
-
-| 产生式 | 行 | AST 结果 | 状态 |
-|---|---|---|---|
-| `literalExpression` | 631 | `IntLit` / `BoolLit` | [x] |
-| `structExprFields` / `structExprField` | 635 / 639 | `vector<FieldInit>` | [x] |
-| `arrayExpression` | 643 | `ArrayLit` / `ArrayRepeat` | [x] |
-| `postfixSuffix` | 647 | Call / Index / dot 链 | [x] |
-| `dotSuffix` | 653 | `MethodCallExpr` / `FieldAccessExpr` | [x] |
-| `callArguments` | 658 | `args` | [x] |
-| `unaryOperator` | 662 | `UnaryOp` | [x] |
-| `multiplicativeOperator` / `additiveOperator` | 666 / 670 | `BinaryOp` | [x] |
-| `shiftRight` | 676 | `BinaryOp::Shr` | [x] |
-| `comparisonExceptLt` | 680 | `BinaryOp` 比较族 | [x] |
-| `assignmentOperator` | 684 | `AssignOp` | [x] |
-| `equalsSign` | 690 | `AssignOp::Assign`（辅助） | [x] |
-| `identifier` | 695 | 名字字符串（含上下文关键字） | [x] |
-
-### 3.8 明确丢弃清单
-
-- `use` 全族（19-32）：import 解析不做。
-- lifetime 全族（84-112）：参数、标注、实参、bound、where 全部丢弃。
-- 空 `;` 语句、括号表达式外壳、各类影子规则与 `closed*` 辅助规则。
+- **独立函数** ≈ 30 个：`buildCrate/Item/Function/Struct/ConstItem/Impl/Params/SelfParam/Param/Derives/FieldDef`、`buildType/ReferenceType/ArrayType/PathType/TypePathSegments`、`buildBlock/Stmt/Let`、`buildExpr/Assignment/foldBinary/Comparison/Cast/Unary/Postfix/Primary`、`buildConst/PathSegments/GenericArgs`；
+- **合并（不单独写）**：68 条影子/`closed*` 规则 + `closedCastType`；
+- **内联读取（不单独写）**：17 条小规则；
+- **丢弃**：`use` 4 条 + lifetime 7 条 + 空 `;`、括号壳；
+- **纯解析辅助**：`genericClose`。
 
 ## 4. 示例 AST
 
@@ -222,7 +238,7 @@ Crate
 | `nm` 未定义 `accept` 引用 | 0 |
 | `AstVisitor` 纯虚 visit 数 | 37 |
 | 236 个 semantic 源码解析 | 0 失败 |
-| 文法覆盖勾选 | 本文件第 3 节，全部 [x] |
+| 文法覆盖勾选 | 本文件第 3 节总表，全部 [x] |
 
 ## 6. P2 实现提醒
 
@@ -232,133 +248,38 @@ Crate
 - 结构体字面量在条件位置有额外限制，文法已消歧，直接接结果。
 - 每个自定义测试尽量覆盖本表一行，P2 完成后再更新本文件的验收记录。
 
-## 7. ASTBuilder ↔ Parser.g4 对照表
+## 7. ASTBuilder 函数形态速查
 
-对应 `src/ast/builder.h` 的函数划分。状态图例：
+### 7.1 五种函数形状
 
-- **✅ 独立函数**：builder 里有对应职责的函数
-- **🔁 合并**：多条规则进同一个函数的 case，不需要单独写
-- **➖ 内联**：父函数直接读 context/token，不单独成函数
-- **⛔ 丢弃**：规范明确不处理
-- **❌ 纯解析辅助**：只为解析消歧存在，不产生 AST
-
-### 7.1 顶层与 item
-
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `crate` | 7 | `buildCrate` | ✅ |
-| `item` | 11 | `buildItem` | ✅ 分发器 |
-| `useDeclaration` | 19 | — | ⛔ 规范明确解析后整条丢弃 |
-| `useTree` | 23 | — | ⛔ 同上 |
-| `usePath` | 28 | — | ⛔ 同上 |
-| `usePathSegment` | 32 | — | ⛔ 同上 |
-| `functionDefinition` | 36 | `buildFunction` | ✅ |
-| `functionParameters` | 41 | `buildParams` | ✅ |
-| `selfParam` | 46 | `buildSelfParam` | ✅ |
-| `functionParam` | 50 | `buildParam` | ✅ |
-| `structDefinition` | 54 | `buildStruct` | ✅ |
-| `structField` | 59 | `buildFieldDef` | ✅ |
-| `outerAttribute` | 63 | `buildDerives` | ✅ |
-| `deriveName` | 68 | — | ➖ `buildDerives` 读文本置位 |
-| `constantItem` | 72 | `buildConstItem` | ✅ |
-| `inherentImpl` | 76 | `buildImpl` | ✅ |
-| `associatedItem` | 80 | — | ➖ `buildImpl` 转发到 `buildFunction`/`buildConstItem` |
-| `genericParams` | 84 | — | ⛔ lifetime 语法丢弃 |
-| `lifetimeParam` | 88 | — | ⛔ |
-| `lifetime` | 92 | — | ⛔ |
-| `lifetimeBounds` | 96 | — | ⛔ |
-| `typeParamBounds` | 100 | — | ⛔ |
-| `whereClause` | 104 | — | ⛔ |
-| `whereClauseItem` | 108 | — | ⛔ |
-
-### 7.2 类型与路径
-
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `typeRef` | 113 | `buildType` | ✅ 分发器 |
-| `referenceType` | 121 | `buildReferenceType` | ✅（`&&` 拆两层） |
-| `arrayType` | 126 | `buildArrayType` | ✅ |
-| `typePath` | 130 | `buildPathType` | ✅ |
-| `typePathSegment` | 134 | — | ➖ `buildTypePathSegments` 内联 |
-| `pathInExpression` | 138 | `buildPathSegments` | ✅ 复用（PathExpr/StructLit/callee） |
-| `pathExprSegment` | 142 | — | ➖ `buildPathSegments` 内联 |
-| `pathIdentSegment` | 146 | — | ➖ 读文本 + 判 `Self`/`self` |
-| `genericArgs` | 150 | `buildGenericArgs` | ✅ |
-| `genericArg` | 154 | — | ➖ type 实参递归 `buildType`，lifetime 丢弃 |
-| `genericClose` | 158 | — | ❌ 只是 `>` 的拼装 token |
-| `closedCastType` | 164 | — | 🔁 合并进 `buildCast` |
-
-### 7.3 常量
-
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `constValue` | 171 | `buildConst` | ✅ |
-| `magnitude` | 180 | — | ➖ `buildConst` 处理 `ConstNeg` 操作数 |
-| `identifierBinding` | 184 | — | ➖ `buildLet`/`buildParam` 读 name+mut |
-
-### 7.4 语句与块
-
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `letStatement` | 188 | `buildLet` | ✅ |
-| `blockExpression` | 192 | `buildBlock` | ✅（含 tail 判断） |
-| `statement` | 196 | `buildStmt` | ✅ 分发器（空 `;` 丢弃） |
-| `expressionWithBlock` | 203 | — | ➖ `buildPrimary`/`buildStmt` 内产出对应 Expr |
-| `ifExpression` | 210 | — | ➖ `buildPrimary` 内处理（可自行加 `buildIf`） |
-
-### 7.5 表达式主链
-
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `expression` | 218 | `buildExpr` | ✅ 统一入口/分发 |
-| `assignmentExpression` | 222 | `buildAssignment` | ✅ 右结合 |
-| `logicalOrExpression` | 226 | `foldBinary(LOr)` | 🔁 |
-| `logicalAndExpression` | 230 | `foldBinary(LAnd)` | 🔁 |
-| `comparisonExpression` | 234 | `buildComparison` | ✅ 单运算符 |
-| `bitOrExpression` / `closed*` | 239 / 243 | `foldBinary(BitOr)` | 🔁 |
-| `bitXorExpression` / `closed*` | 247 / 251 | `foldBinary(BitXor)` | 🔁 |
-| `bitAndExpression` / `closed*` | 255 / 259 | `foldBinary(BitAnd)` | 🔁 |
-| `shiftExpression` / `closed*` | 263 / 267 | `foldBinary(Shl/Shr)` | 🔁 运算符可能是 `shiftRight` 规则节点 |
-| `additiveExpression` / `closed*` | 271 / 275 | `foldBinary(Add/Sub)` | 🔁 |
-| `multiplicativeExpression` / `closed*` | 279 / 283 | `foldBinary(Mul/Div/Rem)` | 🔁 |
-| `castExpression` / `closedCastExpression` | 287 / 291 | `buildCast` | 🔁 |
-| `unaryExpression` | 296 | `buildUnary` | ✅ |
-| `postfixExpression` | 301 | `buildPostfix` | ✅ |
-
-### 7.6 影子规则族（全部 🔁 合并，不单独写）
-
-| 族 | 行范围 | 合并进 |
+| 文法形状 | 函数形状 | 例子 |
 |---|---|---|
-| `condition*`（21 条） | 306-393 | `buildAssignment` / `foldBinary` / `buildComparison` / `buildCast` / `buildUnary` / `buildPostfix` / `buildExpr` |
-| `conditionBreak*`（19 条） | 395-492 | 同上 |
-| `statement*`（20 条） | 494-592 | 同上；`statementPostfixExpression` 的 `expressionWithBlock dotSuffix` 分支在 `buildPostfix` 判定 |
+| 多备选（`A \| B \| C`） | 分发器：if / dynamic_cast 判分支，返回子 build 结果，自己不建节点 | `buildItem`、`buildStmt`、`buildType` |
+| 单备选 + 若干子节点 | 构造器：`make_unique<Xxx>`，逐字段填 | `buildFunction`、`buildBlock`、`buildStruct` |
+| 纯 token 规则 | 直接填一个小结构，不递归 | `buildSelfParam`、`buildDerives` |
+| 单子节点透传 | `return buildXxx(child)` | `expression → assignmentExpression`；`(T) → T` |
+| 重复子节点（`*`/`+`） | 循环 + `push_back` | `buildCrate` 的 `item()*`、`buildParams` |
 
-原因：与主链是同一套语法、不同解析入口，`buildExpr` 的 rule-index switch 把它们放进同一个 case。
+### 7.2 写之前的固定三步
 
-### 7.7 primary / 后缀 / 运算符 / 叶子
+1. **查目标**：在本文件第 3 节总表找到「目标节点」和「builder」，确定返回类型；
+2. **判断“或/且”**：
+   - 规则是 `A | B | C` → 分发，不建节点；
+   - 规则是 `A B C` → 构造，把子节点映射到字段；
+   - 子节点是 token → 就地读（`getText()`、`MUT() != nullptr`）；
+   - 子节点是规则且 AST 类型等于字段类型 → 调它的 build；
+   - 子节点没有 AST 价值（lifetime、括号壳）→ 丢弃或内提；
+3. **处理可空与重复**：`?` 判 nullptr（能缺省留空，缺省不了 `fail()`）；`*`/`+` 循环；核对丢弃清单。
 
-| 规则 | 行 | builder | 状态/原因 |
-|---|---|---|---|
-| `primaryExpression` | 594 | `buildPrimary` | ✅ |
-| `nonBlockPrimary` | 599 | — | ➖ `buildPrimary` 内联 |
-| `conditionPrimary` / `conditionPrimaryWithoutBareBlock` | 611 / 618 | — | 🔁 合并进 `buildPrimary` |
-| `literalExpression` | 631 | — | ➖ `buildPrimary` 产出 IntLit/BoolLit |
-| `structExprFields` / `structExprField` | 635 / 639 | — | ➖ `buildPrimary` 的 StructLit 部分 |
-| `arrayExpression` | 643 | — | ➖ `buildPrimary` 的 ArrayLit/ArrayRepeat 部分 |
-| `postfixSuffix` | 647 | — | ➖ `buildPostfix` 循环内 |
-| `dotSuffix` | 653 | — | ➖ 带参数→MethodCall，否则 FieldAccess |
-| `callArguments` | 658 | — | ➖ `buildPostfix`/调用实参 |
-| `unaryOperator` | 662 | — | ➖ `buildUnary` 读 token；`ANDAND` 拆两层 |
-| `multiplicativeOperator` / `additiveOperator` | 666 / 670 | — | ➖ `foldBinary` 的 op 映射表 |
-| `shiftRight` | 676 | — | ➖ `foldBinary` 识别为 `Shr` |
-| `comparisonExceptLt` | 680 | — | ➖ `buildComparison` 的 op 映射 |
-| `assignmentOperator` / `equalsSign` | 684 / 690 | — | ➖ `buildAssignment` 的 op 映射 |
-| `identifier` | 695 | — | ➖ 各构造器直接 `getText()` |
+### 7.3 自检清单（每个函数写完问 5 个问题）
 
-### 7.8 统计
+1. 目标节点的每个字段都填了吗（或有意留空）？
+2. 每条有语义的文法子节点是否恰好被消费一次？
+3. `?` 子节点都有判空吗？缺省语义对吗（如 `ret=nullptr` 表示 `()`）？
+4. `*` 子节点都进 vector 了吗？顺序对吗？
+5. 丢弃清单核对过了吗（`use`、lifetime、空 `;`、括号壳）？
 
-- **独立函数** ≈ 30 个：`buildCrate/Item/Function/Struct/ConstItem/Impl/Params/SelfParam/Param/Derives/FieldDef`、`buildType/ReferenceType/ArrayType/PathType/TypePathSegments`、`buildBlock/Stmt/Let`、`buildExpr/Assignment/foldBinary/Comparison/Cast/Unary/Postfix/Primary`、`buildConst/PathSegments/GenericArgs`；
-- **合并（不单独写）**：68 条影子/`closed*` 规则 + `closedCastType`；
-- **内联读取（不单独写）**：17 条小规则；
-- **丢弃**：`use` 4 条 + lifetime 7 条；
-- **纯解析辅助**：`genericClose`。
+### 7.4 两个标准答案来源
+
+- **`ast.h` 的字段**：定义“必须产出什么”；
+- **`dump.cpp` 的打印内容**：定义“每个节点有哪些必要信息”，反向要求 builder 填对字段。
