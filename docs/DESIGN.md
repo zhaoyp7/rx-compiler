@@ -1,7 +1,7 @@
 # Rx 编译器设计文档
 
 > 阶段一（AST + 语义）设计记录。本文件随阶段推进更新。
-> 当前进度：P1（AST 定义）完成，P2（AST 构建）进行中。
+> 当前进度：P1（AST 定义）、P2（AST 构建）完成；下一步 P3（符号与名字解析）。
 
 ## 1. AST 总体设计
 
@@ -229,7 +229,9 @@ Crate
             └── rhs = PathExpr{segments=[{name="b", kind=Ident}]}
 ```
 
-## 5. P1 验收记录
+## 5. 验收记录
+
+### 5.1 P1（AST 定义）
 
 | 检查 | 结果 |
 |---|---|
@@ -239,6 +241,19 @@ Crate
 | `AstVisitor` 纯虚 visit 数 | 37 |
 | 236 个 semantic 源码解析 | 0 失败 |
 | 文法覆盖勾选 | 本文件第 3 节总表，全部 [x] |
+
+### 5.2 P2（AST 构建）
+
+| 检查 | 结果 |
+|---|---|
+| `cmake --build build -j32` | 通过，0 warning / 0 error |
+| `entry` 用例 `--stage parse` / `--stage ast` | 均 exit 0，dump 结构正确 |
+| 236 个 semantic 源码 `--stage ast` 全量烟测 | 236/236 通过，0 失败 |
+| 抽检 5 个文件人工核对 | `integer-arithmetic`、`arrays`、`loops-and-jumps`、`structs-and-fields`、`comprehensive-quicksort`，结构均正确 |
+| 覆盖范围 | 89 条表达式规则经 `buildExpr` 分发，37 个 builder 函数与第 3 节总表一致 |
+| 提交 | `4a6fa8f feat(ast): implement complete AST builder` |
+
+抽检确认过的关键归一化：块尾表达式（含裸 `if/loop/while` 与 `while { ... }` 的块条件）、二元左结合、`&&`/`&&mut` 拆两层、`ArrayRepeat` 与 `ArrayLit` 区分、`StructLit`/`FieldInit`、`&mut Vec::<i32>` 路径泛型实参。
 
 ## 6. P2 实现提醒
 
