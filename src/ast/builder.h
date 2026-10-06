@@ -46,13 +46,22 @@ private:
 
   // ---- 表达式（核心分发） ----
   ExprPtr buildExpr(antlr4::tree::ParseTree *node);
-  ExprPtr buildAssignment(antlr4::tree::ParseTree *node);
-  ExprPtr foldBinary(antlr4::tree::ParseTree *node, BinaryOp op);
-  ExprPtr buildComparison(antlr4::tree::ParseTree *node);
-  ExprPtr buildCast(antlr4::tree::ParseTree *node);
-  ExprPtr buildUnary(antlr4::tree::ParseTree *node);
-  ExprPtr buildPostfix(antlr4::tree::ParseTree *node);
-  ExprPtr buildPrimary(antlr4::tree::ParseTree *node);
+  ExprPtr buildAssignment(antlr4::ParserRuleContext *node);
+  ExprPtr foldBinary(antlr4::ParserRuleContext *node, BinaryOp op);
+  ExprPtr buildComparison(antlr4::ParserRuleContext *node);
+  ExprPtr buildCast(antlr4::ParserRuleContext *node);
+  ExprPtr buildUnary(antlr4::ParserRuleContext *node);
+  ExprPtr buildPostfix(antlr4::ParserRuleContext *node);
+  ExprPtr buildPrimary(antlr4::ParserRuleContext *node);
+  ExprPtr buildNonBlockPrimary(RxParser::NonBlockPrimaryContext *ctx);
+  ExprPtr buildNonBlockPrimary(RxParser::ConditionPrimaryWithoutBareBlockContext *ctx);
+  ExprPtr buildExpressionWithBlock(antlr4::ParserRuleContext *ctx);
+  ExprPtr buildLiteral(RxParser::LiteralExpressionContext *ctx);
+  ExprPtr buildArrayExpr(RxParser::ArrayExpressionContext *ctx);
+  ExprPtr buildIf(RxParser::IfExpressionContext *ctx);
+  ExprPtr buildLoop(RxParser::ExpressionWithBlockContext *ctx);
+  ExprPtr buildWhile(RxParser::ExpressionWithBlockContext *ctx);
+  ExprPtr buildStructLit(RxParser::PathInExpressionContext *path, RxParser::StructExprFieldsContext *fields);
 
   // ---- 常量与路径 ----
   ConstValuePtr buildConst(antlr4::tree::ParseTree *node);
@@ -62,6 +71,15 @@ private:
 
   // ---- 工具 ----
   void fail();
+  SourceSpan spanOf(antlr4::ParserRuleContext *ctx);
+  bool check_str_end(const std::string &str, const std::string &end);
+  bool parseConstInt(const std::string &text, uint64_t &value, rx::IntSuffix &suffix);
+  bool parseAssignOp(const std::string &text, AssignOp &op);
+  bool parseComparisonOp(const std::string &text, BinaryOp &op);
+  bool parseBinaryOp(const std::string &text, BinaryOp &op);
+  ExprPtr applyDotSuffix(ExprPtr base, RxParser::DotSuffixContext *dot);
+  ConstValuePtr buildMagnitude(RxParser::MagnitudeContext*ctx);
+  PathSegment buildPathSegment(RxParser::PathIdentSegmentContext *ident, RxParser::GenericArgsContext *args);
   bool ok_ = true;
 };
 
