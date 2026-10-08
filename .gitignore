@@ -17,6 +17,7 @@ __pycache__/
 dev/
 *.local.*
 /.cache/
-
+quiz*
+prompt.md
 
 config.reference.mk
