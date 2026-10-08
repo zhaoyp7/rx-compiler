@@ -66,7 +66,7 @@ ItemPtr ASTBuilder::buildFunction(RxParser::FunctionDefinitionContext *ctx) {
 }
 std::vector<Param> ASTBuilder::buildParams(RxParser::FunctionParametersContext *ctx) {
   std::vector<Param> params;
-  if (ctx->selfParam()) {
+  if (ctx->selfParam() != nullptr) {
     params.push_back(buildSelfParam(ctx->selfParam()));
   }
   for (auto *p : ctx->functionParam()) {
@@ -639,10 +639,6 @@ ExprPtr ASTBuilder::buildComparison(antlr4::ParserRuleContext *node) {
   return ans;
 }
 ExprPtr ASTBuilder::buildCast(antlr4::ParserRuleContext *node) {
-  /*
-  case1: [unary] or [unary, AS, typeRef, AS, typeRef, ...]
-  case2: [unary] or [castExpression, AS, closedCastType]
-  */
   if (node == nullptr || node->children.empty()) {
     fail();
     return nullptr;
