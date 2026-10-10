@@ -55,6 +55,7 @@ ItemPtr ASTBuilder::buildFunction(RxParser::FunctionDefinitionContext *ctx) {
   auto fn = std::make_unique<FnDecl>();
   fn->span = spanOf(ctx);
   fn->name = ctx->identifier()->getText();
+  fn->hasGenericParams = (ctx->genericParams() != nullptr);
   if (ctx->functionParameters() != nullptr) {
     fn->params = buildParams(ctx->functionParameters());
   }

@@ -263,6 +263,7 @@ struct ExprStmt : Stmt {
 struct Item : Node {};
 struct FnDecl : Item {
   std::string name;
+  bool hasGenericParams = false;
   std::vector<Param> params;
   TypePtr ret;
   BlockPtr body;
