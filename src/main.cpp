@@ -10,6 +10,7 @@
 
 #include "ast/builder.h"
 #include "ast/dump.h"
+#include "sema/analyzer.h"
 
 int main(int argc, char** argv) {
     std::optional<Options> options = parseArgs(argc, argv);
@@ -51,7 +52,13 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (options->stage == "semantic") {
-        return 1;
+        rx::ASTBuilder builder;
+        rx::BuildResult result = builder.build(tree);
+        if (!result.ok) {
+            return 1;
+        }
+        rx::SemanticAnalyzer analyzer;
+        return analyzer.run(result.crate) ? 0 : 1;
     }
     return 1;
 }
