@@ -8,7 +8,6 @@
 # ANTLR
 .antlr
 /tools/
-src/generated/
 
 # Python test runner
 __pycache__/
