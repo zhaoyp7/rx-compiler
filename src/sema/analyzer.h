@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -8,6 +9,14 @@
 #include "symbols.h"
 
 namespace rx {
+
+enum class ConstType { I32, U32, Isize, Usize, Bool };
+
+struct ConstVal {
+  ConstType type = ConstType::I32;
+  int64_t value = 0;
+  bool boolean = false;
+};
 
 class SemanticAnalyzer {
 public:
@@ -26,6 +35,9 @@ private:
   int currentStruct = InvalidSymbol;
   bool inReceiverMethod = false;
   bool failed = false;
+
+  std::unordered_map<int, ConstVal> constValues;
+  std::unordered_map<int, int> constState; // 0 未访问 1 正在求值 2 完成
 
   int addSymbol(const std::string &name, SymbolKind kind, SourceSpan span,
                 const Node *decl);
@@ -48,6 +60,13 @@ private:
   void resolveStmt(const Stmt &stmt);
   void resolveExpr(const Expr &expr);
   int resolvePath(const PathExpr &path);
+
+  bool calcConstValue(const ConstValue &cv, ConstVal &out);
+  bool calcConstValue(const ConstValue &cv, ConstType expected, ConstVal &out);
+  bool calcConstLength(const ConstValue &cv);
+  bool calcConstSymbol(int id, ConstVal &out);
+  int resolveConstPath(const ConstPath &path);
+  ConstType typeFromSyntax(const TypeSyntax &type, bool &ok);
 };
 
 } // namespace rx

@@ -1,4 +1,6 @@
 #include "analyzer.h"
+#include "ast/ast.h"
+#include "sema/symbols.h"
 #include <map>
 
 namespace rx {
@@ -10,6 +12,8 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   scopes.clear();
   bindings.clear();
   implTargets.clear();
+  constValues.clear();
+  constState.clear();
   currentStruct = InvalidSymbol;
   inReceiverMethod = false;
   failed = false;
@@ -179,9 +183,12 @@ void SemanticAnalyzer::resolveType(const TypeSyntax &type) {
       resolveType(*ptr->inner);
     }
     return;
-  } else if (auto *ptr = dynamic_cast<const ArrayType *>(&type)) {
-    if (ptr->elem != nullptr) {
-      resolveType(*ptr->elem);
+  } else if (auto *arr = dynamic_cast<const ArrayType *>(&type)) {
+    if (arr->elem != nullptr) {
+      resolveType(*arr->elem);
+    }
+    if (arr->len != nullptr) {
+      calcConstLength(*arr->len);
     }
     return;
   } else if (auto *path = dynamic_cast<const PathType *>(&type)) {
@@ -336,6 +343,9 @@ void SemanticAnalyzer::resolveExpr(const Expr &expr) {
     }
   } else if (auto array = dynamic_cast<const ArrayRepeat *>(&expr)) {
     resolveExpr(*array->elem);
+    if (array->count != nullptr) {
+      calcConstLength(*array->count);
+    }
   } else if (auto field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
     resolveExpr(*field->receiver);
   } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
@@ -427,6 +437,11 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
       if (cd->type != nullptr) {
         resolveType(*cd->type);
       }
+      auto it = valueTable.find(cd->name);
+      if (it != valueTable.end()) {
+        ConstVal val;
+        calcConstSymbol(it->second, val);
+      }
     } else if (auto *impl = dynamic_cast<const ImplDecl *>(item.get())) {
       auto it = implTargets.find(impl);
       if (it == implTargets.end()) {
@@ -440,10 +455,252 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
           if (cd->type != nullptr) {
             resolveType(*cd->type);
           }
+          auto table = assocTable.find(currentStruct);
+          if (table != assocTable.end()) {
+            auto it = table->second.find(cd->name);
+            if (it != table->second.end()) {
+              ConstVal v;
+              calcConstSymbol(it->second, v);
+            }
+          }
         }
       }
       currentStruct = InvalidSymbol;
     }
+  }
+}
+
+bool SemanticAnalyzer::calcConstValue(const ConstValue &cv, ConstVal &out) {
+  if (auto val = dynamic_cast<const ConstInt *>(&cv)) {
+    if (val->suffix == IntSuffix::None) {
+      out.type = ConstType::I32;
+    } else if (val->suffix == IntSuffix::I32) {
+      out.type = ConstType::I32;
+    } else if (val->suffix == IntSuffix::Isize) {
+      out.type = ConstType::Isize;
+    } else if (val->suffix == IntSuffix::U32) {
+      out.type = ConstType::U32;
+    } else if (val->suffix == IntSuffix::Usize) {
+      out.type = ConstType::Usize;
+    }
+    out.value = val->value;
+  } else if (auto val = dynamic_cast<const ConstBool *>(&cv)) {
+    out.type = ConstType::Bool;
+    out.boolean = val->value;
+  } else if (auto path = dynamic_cast<const ConstPath *>(&cv)) {
+    int id = resolveConstPath(*path);
+    if (id == InvalidSymbol) {
+      error();
+      return false;
+    }
+    return calcConstSymbol(id, out);
+  } else if (auto val = dynamic_cast<const ConstNeg *>(&cv)) {
+    ConstVal op;
+    if (!calcConstValue(*val->operand, op)) {
+      error();
+      return false;
+    }
+    if (op.type != ConstType::I32 && op.type != ConstType::Isize) {
+      error();
+      return false;
+    }
+    out.type = op.type;
+    out.value = -op.value;
+  }
+  return true;
+}
+bool SemanticAnalyzer::calcConstValue(const ConstValue &cv, ConstType expected,
+                                      ConstVal &out) {
+  if (auto val = dynamic_cast<const ConstInt *>(&cv)) {
+    if (val->suffix == IntSuffix::None) {
+      if (expected == ConstType::Bool) {
+        error();
+        return false;
+      }
+      out.type = expected;
+    } else if (val->suffix == IntSuffix::I32) {
+      out.type = ConstType::I32;
+    } else if (val->suffix == IntSuffix::Isize) {
+      out.type = ConstType::Isize;
+    } else if (val->suffix == IntSuffix::U32) {
+      out.type = ConstType::U32;
+    } else if (val->suffix == IntSuffix::Usize) {
+      out.type = ConstType::Usize;
+    }
+    out.value = val->value;
+  } else if (auto val = dynamic_cast<const ConstBool *>(&cv)) {
+    out.type = ConstType::Bool;
+    out.boolean = val->value;
+  } else if (auto path = dynamic_cast<const ConstPath *>(&cv)) {
+    int id = resolveConstPath(*path);
+    if (id == InvalidSymbol) {
+      error();
+      return false;
+    }
+    if (!calcConstSymbol(id, out)) {
+      error();
+      return false;
+    }
+  } else if (auto val = dynamic_cast<const ConstNeg *>(&cv)) {
+    ConstVal op;
+    if (!calcConstValue(*val->operand, op)) {
+      error();
+      return false;
+    }
+    if (op.type != ConstType::I32 && op.type != ConstType::Isize) {
+      error();
+      return false;
+    }
+    out.type = op.type;
+    out.value = -op.value;
+  }
+  if (out.type != expected) {
+    error();
+    return false;
+  }
+  return true;
+}
+bool SemanticAnalyzer::calcConstLength(const ConstValue &cv) {
+  ConstVal ans;
+  if (!calcConstValue(cv, ConstType::Usize, ans)) {
+    return false;
+  }
+  if (ans.type != ConstType::Usize) {
+    error();
+    return false;
+  }
+  return true;
+}
+bool SemanticAnalyzer::calcConstSymbol(int id, ConstVal &out) {
+  int state = constState[id];
+  if (state == 1) {
+    error();
+    return false;
+  } else if (state == 2) {
+    auto it = constValues.find(id);
+    if (it == constValues.end()) {
+      return false;
+    }
+    out = it->second;
+    return true;
+  }
+  if (symbols[id].kind != SymbolKind::Const &&
+      symbols[id].kind != SymbolKind::AssocConst) {
+    error();
+    constState[id] = 2;
+    return false;
+  }
+  const ConstDecl *cd = dynamic_cast<const ConstDecl *>(symbols[id].decl);
+  if (cd == nullptr) {
+    error();
+    constState[id] = 2;
+    return false;
+  }
+  bool ok = true;
+  ConstType declared = typeFromSyntax(*cd->type, ok);
+  if (ok == false) {
+    error();
+    constState[id] = 2;
+    return false;
+  }
+  constState[id] = 1;
+  int tmp = currentStruct;
+  currentStruct = symbols[id].owner;
+  ConstVal ans;
+  if (!calcConstValue(*cd->value, declared, ans)) {
+    error();
+    constState[id] = 2;
+    currentStruct = tmp;
+    return false;
+  }
+  currentStruct = tmp;
+  constValues[id] = ans;
+  constState[id] = 2;
+  out = ans;
+  return true;
+}
+int SemanticAnalyzer::resolveConstPath(const ConstPath &path) {
+  if (path.names.size() != 1 && path.names.size() != 2) {
+    error();
+    return InvalidSymbol;
+  } else if (path.names.size() == 1) {
+    std::string name = path.names[0];
+    int id = lookupValue(name);
+    if (id == InvalidSymbol) {
+      error();
+      return InvalidSymbol;
+    }
+    if (symbols[id].kind != SymbolKind::Const &&
+        symbols[id].kind != SymbolKind::AssocConst) {
+      error();
+      return InvalidSymbol;
+    }
+    return id;
+  } else {
+    std::string first = path.names[0];
+    std::string second = path.names[1];
+    int structId = InvalidSymbol;
+    if (first == "Self") {
+      if (currentStruct == InvalidSymbol) {
+        error();
+        return InvalidSymbol;
+      }
+      structId = currentStruct;
+    } else {
+      auto it = typeTable.find(first);
+      if (it == typeTable.end() ||
+          symbols[it->second].kind != SymbolKind::Struct) {
+        error();
+        return InvalidSymbol;
+      }
+      structId = it->second;
+    }
+    auto table = assocTable.find(structId);
+    if (table == assocTable.end()) {
+      error();
+      return InvalidSymbol;
+    }
+    auto it = table->second.find(second);
+    if (it == table->second.end() ||
+        symbols[it->second].kind != SymbolKind::AssocConst) {
+      error();
+      return InvalidSymbol;
+    }
+    return it->second;
+  }
+}
+ConstType SemanticAnalyzer::typeFromSyntax(const TypeSyntax &type, bool &ok) {
+  ok = false;
+  if (auto paren = dynamic_cast<const ParenType *>(&type)) {
+    if (paren->inner == nullptr) {
+      return ConstType::Bool;
+    }
+    return typeFromSyntax(*paren->inner, ok);
+  } else if (auto path = dynamic_cast<const PathType *>(&type)) {
+    if (path->segments.size() != 1 ||
+        path->segments[0].kind != PathSegmentKind::Ident) {
+      return ConstType::Bool;
+    }
+    std::string name = path->segments[0].name;
+    if (name == "i32") {
+      ok = true;
+      return ConstType::I32;
+    } else if (name == "u32") {
+      ok = true;
+      return ConstType::U32;
+    } else if (name == "isize") {
+      ok = true;
+      return ConstType::Isize;
+    } else if (name == "usize") {
+      ok = true;
+      return ConstType::Usize;
+    } else if (name == "bool") {
+      ok = true;
+      return ConstType::Bool;
+    }
+    return ConstType::Bool;
+  } else {
+    return ConstType::Bool;
   }
 }
 
