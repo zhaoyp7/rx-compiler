@@ -3,7 +3,7 @@
 
 # 构建编译器，并留下空的 runtime（BUILD 每次 make test 只跑一次）
 BUILD = cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug >/dev/null && \
-    cmake --build build -j32 >/dev/null && : > {runtime}
+    cmake --build build -j2 >/dev/null && : > {runtime}
 
 # 语义：accept 退 0，reject 恰好退 1
 SEMANTIC = ./build/rxc --stage semantic {source}
