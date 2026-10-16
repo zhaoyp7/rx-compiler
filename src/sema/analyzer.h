@@ -7,6 +7,7 @@
 
 #include "ast/ast.h"
 #include "symbols.h"
+#include "types.h"
 
 namespace rx {
 
@@ -39,6 +40,11 @@ private:
   std::unordered_map<int, ConstVal> constValues;
   std::unordered_map<int, int> constState; // 0 未访问 1 正在求值 2 完成
 
+  TypeArena types;
+  std::unordered_map<int, std::vector<TypeId>> structFieldTypes;
+  std::unordered_map<int, StructLayout> structLayouts;
+  std::unordered_map<int, int> layoutState; // 0 未访问 1 正在求值 2 成功 3 失败
+
   int addSymbol(const std::string &name, SymbolKind kind, SourceSpan span,
                 const Node *decl);
   bool hasSelfParam(const FnDecl &fn);
@@ -67,6 +73,12 @@ private:
   bool calcConstSymbol(int id, ConstVal &out);
   int resolveConstPath(const ConstPath &path);
   ConstType typeFromSyntax(const TypeSyntax &type, bool &ok);
+
+  TypeId resolveTypeId(const TypeSyntax &type, bool &ok);
+  std::string typeToString(TypeId id) const;
+  bool layoutStruct(int id);
+  void checkLayouts();
+  bool typeSizeAlign(TypeId id, uint32_t &size, uint32_t &align);
 };
 
 } // namespace rx

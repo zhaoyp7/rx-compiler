@@ -1,6 +1,8 @@
 #include "analyzer.h"
 #include "ast/ast.h"
 #include "sema/symbols.h"
+#include "sema/types.h"
+#include <cstdint>
 #include <map>
 
 namespace rx {
@@ -14,6 +16,10 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   implTargets.clear();
   constValues.clear();
   constState.clear();
+  types.clear();
+  structFieldTypes.clear();
+  structLayouts.clear();
+  layoutState.clear();
   currentStruct = InvalidSymbol;
   inReceiverMethod = false;
   failed = false;
@@ -21,6 +27,7 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   registerBuiltins();
   collectCrate(crate);
   resolveCrate(crate);
+  checkLayouts();
   checkEntry();
   return (failed == false);
 }
@@ -428,11 +435,22 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
     if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
       resolveFunction(*fn, false);
     } else if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
-      for (const auto &field : sd->fields) {
-        if (field.type != nullptr) {
-          resolveType(*field.type);
-        }
+      auto it = typeTable.find(sd->name);
+      if (it == typeTable.end()) {
+        continue;
       }
+      int id = it->second;
+      int tmp_id = currentStruct;
+      currentStruct = id;
+      for (const auto &field : sd->fields) {
+        TypeId fieldType = InvalidType;
+        if (field.type != nullptr) {
+          bool ok = false;
+          fieldType = resolveTypeId(*field.type, ok);
+        }
+        structFieldTypes[id].push_back(fieldType);
+      }
+      currentStruct = tmp_id;
     } else if (auto *cd = dynamic_cast<const ConstDecl *>(item.get())) {
       if (cd->type != nullptr) {
         resolveType(*cd->type);
@@ -701,6 +719,188 @@ ConstType SemanticAnalyzer::typeFromSyntax(const TypeSyntax &type, bool &ok) {
     return ConstType::Bool;
   } else {
     return ConstType::Bool;
+  }
+}
+
+TypeId SemanticAnalyzer::resolveTypeId(const TypeSyntax &type, bool &ok) {
+  ok = true;
+  if (auto unit = dynamic_cast<const UnitType *>(&type)) {
+    return types.intern(TypeInfo{});
+  } else if (auto tmp = dynamic_cast<const ParenType *>(&type)) {
+    if (tmp->inner == nullptr) {
+      ok = false;
+      error();
+      return InvalidType;
+    }
+    return resolveTypeId(*tmp->inner, ok);
+  } else if (auto tmp = dynamic_cast<const RefType *>(&type)) {
+    TypeId inner = resolveTypeId(*tmp->inner, ok);
+    if (!ok) {
+      return InvalidType;
+    }
+    return types.intern((TypeInfo){TypeKind::Ref, inner, tmp->mut});
+  } else if (auto arr = dynamic_cast<const ArrayType *>(&type)) {
+    TypeId elem = resolveTypeId(*arr->elem, ok);
+    if (!ok) {
+      return InvalidType;
+    }
+    ConstVal len;
+    if (!calcConstValue(*arr->len, ConstType::Usize, len)) {
+      ok = false;
+      error();
+      return InvalidType;
+    }
+    return types.intern(
+        TypeInfo{TypeKind::Array, elem, false, (uint32_t)len.value});
+  } else if (auto path = dynamic_cast<const PathType *>(&type)) {
+    if (path->segments.empty()) {
+      error();
+      ok = false;
+      return InvalidType;
+    }
+    const auto &first = path->segments[0];
+    if (first.kind == PathSegmentKind::SelfType) {
+      if (currentStruct == InvalidSymbol) {
+        error();
+        ok = false;
+        return InvalidType;
+      }
+      return types.intern(
+          TypeInfo{TypeKind::Struct, InvalidType, false, 0, currentStruct});
+    }
+    if (first.kind == PathSegmentKind::SelfValue) {
+      error();
+      ok = false;
+      return InvalidType;
+    }
+    std::string name = first.name;
+    if (name == "i32") {
+      return types.intern(TypeInfo{TypeKind::I32});
+    } else if (name == "u32") {
+      return types.intern(TypeInfo{TypeKind::U32});
+    } else if (name == "isize") {
+      return types.intern(TypeInfo{TypeKind::Isize});
+    } else if (name == "usize") {
+      return types.intern(TypeInfo{TypeKind::Usize});
+    } else if (name == "bool") {
+      return types.intern(TypeInfo{TypeKind::Bool});
+    } else if (name == "Box" || name == "Vec") {
+      if (first.genericArgs.size() != 1) {
+        error();
+        ok = false;
+        return InvalidType;
+      }
+      TypeId inner = resolveTypeId(*first.genericArgs[0], ok);
+      if (!ok) {
+        return InvalidType;
+      }
+      auto kind = (name == "Box" ? TypeKind::Box : TypeKind::Vec);
+      return types.intern(TypeInfo{kind, inner});
+    }
+    auto it = typeTable.find(name);
+    if (it == typeTable.end() ||
+        symbols[it->second].kind != SymbolKind::Struct) {
+      error();
+      ok = false;
+      return InvalidType;
+    }
+    return types.intern(
+        TypeInfo{TypeKind::Struct, InvalidType, false, 0, it->second});
+  }
+  ok = false;
+  return InvalidType;
+}
+std::string SemanticAnalyzer::typeToString(TypeId id) const {
+  if (id == InvalidType) {
+    return "<invalid>";
+  }
+  TypeInfo info = types.get(id);
+  if (info.kind == TypeKind::Struct) {
+    return symbols[info.structId].name;
+  } else {
+    return types.toString(id);
+  }
+}
+int alignUp(int now, int base) { return (now + base - 1) / base * base; }
+bool SemanticAnalyzer::typeSizeAlign(TypeId id, uint32_t &size,
+                                     uint32_t &align) {
+  if (id == InvalidType) {
+    return false;
+  }
+  TypeInfo info = types.get(id);
+  TypeKind kind = info.kind;
+  if (kind == TypeKind::I32 || kind == TypeKind::Isize) {
+    size = align = 4;
+  } else if (kind == TypeKind::U32 || kind == TypeKind::Usize) {
+    size = align = 4;
+  } else if (kind == TypeKind::Bool) {
+    size = align = 1;
+  } else if (kind == TypeKind::Unit || kind == TypeKind::Never) {
+    size = 0;
+    align = 1;
+  } else if (kind == TypeKind::Ref) {
+    size = align = 4;
+  } else if (kind == TypeKind::Array) {
+    bool flag = typeSizeAlign(info.inner, size, align);
+    if (!flag) {
+      return false;
+    }
+    size *= info.len;
+  } else if (kind == TypeKind::Box) {
+    size = align = 4;
+  } else if (kind == TypeKind::Vec) {
+    size = 12;
+    align = 4;
+  } else if (kind == TypeKind::Struct) {
+    if (!layoutStruct(info.structId)) {
+      return false;
+    }
+    StructLayout tmp = structLayouts[info.structId];
+    size = tmp.size;
+    align = tmp.align;
+  }
+  return true;
+}
+bool SemanticAnalyzer::layoutStruct(int id) {
+  if (layoutState[id] == 1) {
+    error();
+    layoutState[id] = 3;
+    return false;
+  } else if (layoutState[id] == 2) {
+    return true;
+  } else if (layoutState[id] == 3) {
+    return false;
+  }
+  int now = 0;
+  StructLayout ans;
+  layoutState[id] = 1;
+  std::vector<TypeId> fieldtypes = structFieldTypes[id];
+  for (auto fieldtype : fieldtypes) {
+    uint32_t tmp_size = 0, tmp_align = 0;
+    if (!typeSizeAlign(fieldtype, tmp_size, tmp_align)) {
+      error();
+      layoutState[id] = 3;
+      return false;
+    }
+    int offset = alignUp(now, tmp_align);
+    ans.fieldOffsets.push_back(offset);
+    now = offset + tmp_size;
+    ans.align = std::max(ans.align, tmp_align);
+  }
+  ans.size = alignUp(now, ans.align);
+  structLayouts[id] = ans;
+  layoutState[id] = 2;
+  return true;
+}
+void SemanticAnalyzer::checkLayouts() {
+  for (auto symbol : symbols) {
+    if (symbol.kind != SymbolKind::Struct) {
+      continue;
+    }
+    int id = typeTable[symbol.name];
+    if (layoutState[id] != 2 && !layoutStruct(id)) {
+      error();
+    }
   }
 }
 
