@@ -11,8 +11,13 @@
 
 namespace rx {
 
+struct LoopContext {
+  bool isWhile = false;
+  bool isBarrier = false;
+  TypeId expected = InvalidType;
+  std::vector<TypeId> breakTypes;
+};
 enum class ConstType { I32, U32, Isize, Usize, Bool };
-
 struct ConstVal {
   ConstType type = ConstType::I32;
   int64_t value = 0;
@@ -47,6 +52,9 @@ private:
 
   std::unordered_map<const Expr *, TypeId> exprTypes;
 
+  TypeId currentReturnType = InvalidType;
+  std::vector<LoopContext> loops;
+
   int addSymbol(const std::string &name, SymbolKind kind, SourceSpan span,
                 const Node *decl);
   bool hasSelfParam(const FnDecl &fn);
@@ -57,6 +65,12 @@ private:
   bool typesCompatible(TypeId a, TypeId b);
   bool isPlace(const Expr &e);
   bool isMutablePlace(const Expr &e);
+  bool isUnit(TypeId t);
+  bool isNever(TypeId t);
+  bool isUnitCompatible(TypeId t);
+  TypeId unitType();
+  TypeId neverType();
+  TypeId joinTypes(TypeId a, TypeId b);
   void error();
   void pushScope();
   void popScope();
@@ -71,8 +85,8 @@ private:
   void resolveCrate(const Crate &crate);
   void resolveFunction(const FnDecl &fn, bool inImpl);
   void resolveType(const TypeSyntax &type);
-  void resolveBlock(const BlockExpr &block);
-  void resolveStmt(const Stmt &stmt);
+  TypeId resolveBlock(const BlockExpr &block, TypeId expected = InvalidType);
+  bool resolveStmt(const Stmt &stmt);
   void resolveExpr(const Expr &expr);
   int resolvePath(const PathExpr &path);
 

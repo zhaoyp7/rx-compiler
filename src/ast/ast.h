@@ -257,6 +257,7 @@ struct LetStmt : Stmt {
 };
 struct ExprStmt : Stmt {
   ExprPtr expr;
+  bool hasSemicolon = false;
   void accept(AstVisitor &) override;
 };
 

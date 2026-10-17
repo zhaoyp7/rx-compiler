@@ -131,6 +131,7 @@ StmtPtr ASTBuilder::buildStmt(RxParser::StatementContext *ctx) {
     return buildLet(ctx->letStatement());
   }
   auto stmt = std::make_unique<ExprStmt>();
+  stmt->hasSemicolon = (ctx->SEMI() != nullptr);
   if (ctx->expressionWithBlock() != nullptr) {
     stmt->expr = buildExpr(ctx->expressionWithBlock());
     return stmt;

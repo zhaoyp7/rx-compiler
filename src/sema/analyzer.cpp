@@ -21,6 +21,8 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   structLayouts.clear();
   layoutState.clear();
   exprTypes.clear();
+  currentReturnType = InvalidType;
+  loops.clear();
   currentStruct = InvalidSymbol;
   inReceiverMethod = false;
   failed = false;
@@ -267,9 +269,10 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
       structId = it->second;
       // TODO LATER
       if (symbols[structId].kind == SymbolKind::BuiltinType) {
-        // Box::<T>::new / Vec::<T>::new：内建构造，P6 先按 wildcard 放行，P8/P9 实现
+        // Box::<T>::new / Vec::<T>::new：内建构造，P6 先按 wildcard 放行，P8/P9
+        // 实现
         if (path.segments.size() == 2 && path.segments[1].name == "new") {
-          return InvalidSymbol;   // 不报错、不写 bindings
+          return InvalidSymbol; // 不报错、不写 bindings
         }
         error();
         return InvalidSymbol;
@@ -304,7 +307,7 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
 void SemanticAnalyzer::resolveExpr(const Expr &expr) {
   infer(expr, InvalidType);
 }
-void SemanticAnalyzer::resolveStmt(const Stmt &stmt) {
+bool SemanticAnalyzer::resolveStmt(const Stmt &stmt) {
   if (auto let = dynamic_cast<const LetStmt *>(&stmt)) {
     TypeId expected_id = InvalidType;
     if (let->type != nullptr) {
@@ -315,26 +318,50 @@ void SemanticAnalyzer::resolveStmt(const Stmt &stmt) {
       }
     }
     TypeId init = infer(*let->init, expected_id);
-    if (expected_id != InvalidType && init != InvalidType && init != expected_id) {
+    if (expected_id != InvalidType && init != InvalidType &&
+        init != expected_id) {
       error();
     }
     int id = addSymbol(let->name, SymbolKind::Local, stmt.span, &stmt);
     symbols[id].type = (let->type != nullptr) ? expected_id : init;
     symbols[id].mutableBinding = let->mut;
     bindLocal(let->name, id);
+    return isNever(init);
   } else if (auto expr = dynamic_cast<const ExprStmt *>(&stmt)) {
-    resolveExpr(*expr->expr);
+    TypeId type_id = infer(*expr->expr, InvalidType);
+    bool flag = false;
+    if (auto tmp = dynamic_cast<const BlockExpr *>(expr->expr.get())) {
+      flag = true;
+    } else if (auto tmp = dynamic_cast<const IfExpr *>(expr->expr.get())) {
+      flag = true;
+    } else if (auto tmp = dynamic_cast<const LoopExpr *>(expr->expr.get())) {
+      flag = true;
+    } else if (auto tmp = dynamic_cast<const WhileExpr *>(expr->expr.get())) {
+      flag = true;
+    }
+    if (flag && !expr->hasSemicolon && !isUnitCompatible(type_id)) {
+      error();
+    }
+    return isNever(type_id);
   }
+  return false;
 }
-void SemanticAnalyzer::resolveBlock(const BlockExpr &block) {
+TypeId SemanticAnalyzer::resolveBlock(const BlockExpr &block, TypeId expected) {
+  bool diverged = false;
+  TypeId tailType = unitType();
   pushScope();
   for (auto &stmt : block.stmts) {
-    resolveStmt(*stmt);
+    diverged |= resolveStmt(*stmt);
   }
   if (block.tail != nullptr) {
-    resolveExpr(*block.tail);
+    tailType = infer(*block.tail, expected);
   }
   popScope();
+  if (diverged) {
+    return neverType();
+  } else  {
+    return (block.tail != nullptr ? tailType : unitType());
+  }
 }
 void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
   if (hasSelfParam(fn) && !inImpl) {
@@ -360,12 +387,23 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
       bindLocal(param.name, id);
     }
   }
+  TypeId res_type = unitType();
   if (fn.ret != nullptr) {
-    resolveType(*fn.ret);
+    bool ok = false;
+    TypeId tmp = resolveTypeId(*fn.ret, ok);
+    if (ok) {
+      res_type = tmp;
+    }
   }
+  TypeId vis_id = currentReturnType;
+  currentReturnType = res_type;
   if (fn.body != nullptr) {
-    resolveBlock(*fn.body);
+    TypeId body_type = resolveBlock(*fn.body, res_type);
+    if (body_type != InvalidType && body_type != res_type && !isNever(body_type)) {
+      error();
+    }
   }
+  currentReturnType = vis_id;
   popScope();
   inReceiverMethod = false;
 }
@@ -797,6 +835,43 @@ bool SemanticAnalyzer::typesCompatible(TypeId a, TypeId b) {
   }
   return a == b;
 }
+
+bool SemanticAnalyzer::isUnit(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  return types.get(t).kind == TypeKind::Unit;
+}
+bool SemanticAnalyzer::isNever(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  return types.get(t).kind == TypeKind::Never;
+}
+bool SemanticAnalyzer::isUnitCompatible(TypeId t) {
+  return t == InvalidType || isUnit(t) || isNever(t);
+}
+TypeId SemanticAnalyzer::unitType() {
+  return types.intern(TypeInfo{TypeKind::Unit});
+}
+TypeId SemanticAnalyzer::neverType() {
+  return types.intern(TypeInfo{TypeKind::Never});
+}
+TypeId SemanticAnalyzer::joinTypes(TypeId a, TypeId b) {
+  if (a == InvalidType) {
+    return b;
+  } else if (b == InvalidType) {
+    return a;
+  } else if (a == b) {
+    return a;
+  } else if (isNever(a)) {
+    return b;
+  } else if (isNever(b)) {
+    return a;
+  }
+  error();
+  return InvalidType;
+}
 bool SemanticAnalyzer::isPlace(const Expr &e) {
   if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
     auto it = bindings.find(path);
@@ -938,8 +1013,6 @@ void SemanticAnalyzer::checkLayouts() {
 TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
   TypeId res = InvalidType;
   if (auto *lit = dynamic_cast<const IntLit *>(&expr)) {
-    // 字面量选型（见下）
-    // TODO
     IntSuffix suf = lit->suffix;
     if (suf == IntSuffix::I32) {
       res = types.intern(TypeInfo{TypeKind::I32});
@@ -950,7 +1023,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     } else if (suf == IntSuffix::Usize) {
       res = types.intern(TypeInfo{TypeKind::Usize});
     } else {
-      TypeKind kind = expected != InvalidType ? types.get(expected).kind : TypeKind::Unit;
+      TypeKind kind =
+          expected != InvalidType ? types.get(expected).kind : TypeKind::Unit;
       if (kind == TypeKind::I32 || kind == TypeKind::U32 ||
           kind == TypeKind::Isize || kind == TypeKind::Usize) {
         res = expected;
@@ -978,8 +1052,9 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       if (from != InvalidType) {
         TypeKind from_kind = types.get(from).kind;
         TypeKind to_kind = types.get(to).kind;
-        bool from_int = from_kind == TypeKind::I32 || from_kind == TypeKind::U32 ||
-                      from_kind == TypeKind::Isize || from_kind == TypeKind::Usize;
+        bool from_int =
+            from_kind == TypeKind::I32 || from_kind == TypeKind::U32 ||
+            from_kind == TypeKind::Isize || from_kind == TypeKind::Usize;
         bool from_bool = from_kind == TypeKind::Bool;
         bool to_int = to_kind == TypeKind::I32 || to_kind == TypeKind::U32 ||
                       to_kind == TypeKind::Isize || to_kind == TypeKind::Usize;
@@ -992,40 +1067,126 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       if (bad) {
         error();
       }
-      res = to;      
+      res = to;
     }
   } else if (auto block = dynamic_cast<const BlockExpr *>(&expr)) {
-    resolveBlock(*block);
+    res = resolveBlock(*block, expected);
   } else if (auto ifex = dynamic_cast<const IfExpr *>(&expr)) {
-    infer(*ifex->cond, InvalidType);
-    resolveBlock(*ifex->then);
-    if (ifex->elseBranch != nullptr) {
-      infer(*ifex->elseBranch, InvalidType);
+    TypeId cond_id = infer(*ifex->cond, InvalidType);
+    if (cond_id != InvalidType && !isBoolType(cond_id)) {
+      error();
+    }
+    if (ifex->elseBranch == nullptr) {
+      TypeId then_id = resolveBlock(*ifex->then, unitType());
+      if (!isUnitCompatible(then_id)) {
+        error();
+      }
+      res = unitType();
+    } else {
+      TypeId then_id = resolveBlock(*ifex->then, expected);
+      TypeId else_id = infer(*ifex->elseBranch, expected);
+      if (expected != InvalidType) {
+        if (then_id != InvalidType && then_id != expected && !isNever(then_id)) {
+          error();
+        } else if (else_id != InvalidType && else_id != expected && !isNever(else_id)) {
+          error();
+        }
+        res = expected;
+      } else {
+        res = joinTypes(then_id, else_id);
+      }
     }
   } else if (auto loop = dynamic_cast<const LoopExpr *>(&expr)) {
-    resolveBlock(*loop->body);
-  } else if (auto whileex = dynamic_cast<const WhileExpr *>(&expr)) {
-    infer(*whileex->cond, InvalidType);
-    resolveBlock(*whileex->body);
-  } else if (auto breakex = dynamic_cast<const BreakExpr *>(&expr)) {
-    if (breakex->value != nullptr) {
-      infer(*breakex->value, InvalidType);
+    loops.push_back(LoopContext{false, false, expected});
+    TypeId body_id = resolveBlock(*loop->body, unitType());
+    if (!isUnitCompatible(body_id)) {
+      error();
     }
+    std::vector<TypeId> breaktypes = loops.back().breakTypes;
+    loops.pop_back();
+    if (breaktypes.empty()) {
+      res = neverType();
+    } else if (expected != InvalidType) {
+      for (auto type : breaktypes) {
+        if (type != InvalidType && type != expected && !isNever(type)) {
+          error();
+        }
+      }
+      res = expected;
+    } else {
+      res = InvalidType;
+      for (auto tmp : breaktypes) {
+        res = joinTypes(res, tmp);
+      }
+    }
+  } else if (auto whileex = dynamic_cast<const WhileExpr *>(&expr)) {
+    loops.push_back(LoopContext{false, true});
+    TypeId cond_id = infer(*whileex->cond, InvalidType);
+    if (cond_id != InvalidType && !isBoolType(cond_id)) {
+      error();
+    }
+    loops.pop_back();
+    loops.push_back(LoopContext{true});
+    TypeId body_id = resolveBlock(*whileex->body, unitType());
+    if (!isUnitCompatible(body_id)) {
+      error();
+    }
+    loops.pop_back();
+    res = unitType();
+  } else if (auto breakex = dynamic_cast<const BreakExpr *>(&expr)) {
+    int idx = -1;
+    if (!loops.empty() && !loops.back().isBarrier) {
+      idx = (int)loops.size() - 1;
+    } 
+    if (idx == -1) {
+      error();
+    } else if (breakex->value != nullptr) {
+      if (loops[idx].isWhile) {
+        error();
+      }
+      TypeId type = infer(*breakex->value, loops[idx].expected);
+      if (loops[idx].expected != InvalidType && type != InvalidType && type != loops[idx].expected && !isNever(type)) {
+        error();
+      }
+      loops[idx].breakTypes.push_back(type);
+    } else {
+      loops[idx].breakTypes.push_back(unitType());
+    }
+    res = neverType();
+  } else if (auto continueex = dynamic_cast<const ContinueExpr *>(&expr)) {
+    int idx = -1;
+    if (!loops.empty() && !loops.back().isBarrier) {
+      idx = (int)loops.size() - 1;
+    } 
+    if (idx == -1) {
+      error();
+    }
+    res = neverType();
   } else if (auto returnex = dynamic_cast<const ReturnExpr *>(&expr)) {
     if (returnex->value != nullptr) {
-      infer(*returnex->value, InvalidType);
+      TypeId id = infer(*returnex->value, currentReturnType);
+      if (currentReturnType != InvalidType && id != InvalidType && id != currentReturnType && !isNever(id)) {
+        error();
+      }
+    } else {
+      if (currentReturnType != InvalidType && !isUnit(currentReturnType)) {
+        error();
+      }
     }
+    res = neverType();
   } else if (auto binary = dynamic_cast<const BinaryExpr *>(&expr)) {
     TypeId l_id = infer(*binary->lhs, InvalidType);
     TypeId r_id = infer(*binary->rhs, InvalidType);
     BinaryOp op = binary->op;
-    if (op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul || op == BinaryOp::Div || op == BinaryOp::Rem) {
+    if (op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul ||
+        op == BinaryOp::Div || op == BinaryOp::Rem) {
       auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
       if (tmp_l != InvalidType && !isIntType(tmp_l)) {
         error();
       } else if (tmp_r != InvalidType && !isIntType(tmp_r)) {
         error();
-      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
+                 tmp_l != tmp_r) {
         error();
       } else if (tmp_l != InvalidType) {
         res = tmp_l;
@@ -1034,13 +1195,16 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       } else {
         res = InvalidType;
       }
-    } else if (op == BinaryOp::BitAnd || op == BinaryOp::BitOr || op == BinaryOp::BitXor) {
+    } else if (op == BinaryOp::BitAnd || op == BinaryOp::BitOr ||
+               op == BinaryOp::BitXor) {
       auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
       if (tmp_l != InvalidType && !isIntType(tmp_l) && !isBoolType(tmp_l)) {
         error();
-      } else if (tmp_r != InvalidType && !isIntType(tmp_r) && !isBoolType(tmp_r)) {
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r) &&
+                 !isBoolType(tmp_r)) {
         error();
-      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
+                 tmp_l != tmp_r) {
         error();
       }
       res = (tmp_l == InvalidType ? tmp_r : tmp_l);
@@ -1053,13 +1217,16 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       } else {
         res = tmp_l;
       }
-    } else if (op == BinaryOp::Le || op == BinaryOp::Lt || op == BinaryOp::Ge || op == BinaryOp::Gt) {
+    } else if (op == BinaryOp::Le || op == BinaryOp::Lt || op == BinaryOp::Ge ||
+               op == BinaryOp::Gt) {
       auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
       if (tmp_l != InvalidType && !isIntType(tmp_l) && !isBoolType(tmp_l)) {
         error();
-      } else if (tmp_r != InvalidType && !isIntType(tmp_r) && !isBoolType(tmp_r)) {
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r) &&
+                 !isBoolType(tmp_r)) {
         error();
-      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
+                 tmp_l != tmp_r) {
         error();
       }
       res = types.intern(TypeInfo{TypeKind::Bool});
@@ -1088,9 +1255,13 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       if (l_id != InvalidType) {
         bool bad_lhs = false;
         AssignOp op = assign->op;
-        if (op == AssignOp::AddAssign || op == AssignOp::SubAssign || op == AssignOp::MulAssign || op == AssignOp::DivAssign || op == AssignOp::RemAssign) {
+        if (op == AssignOp::AddAssign || op == AssignOp::SubAssign ||
+            op == AssignOp::MulAssign || op == AssignOp::DivAssign ||
+            op == AssignOp::RemAssign) {
           bad_lhs = (isIntType(l_id) ? false : true);
-        } else if (op == AssignOp::BitAndAssign || op == AssignOp::BitOrAssign || op == AssignOp::BitXorAssign) {
+        } else if (op == AssignOp::BitAndAssign ||
+                   op == AssignOp::BitOrAssign ||
+                   op == AssignOp::BitXorAssign) {
           bad_lhs = ((isIntType(l_id) || isBoolType(l_id)) ? false : true);
         } else if (op == AssignOp::ShlAssign || op == AssignOp::ShrAssign) {
           bad_lhs = (isIntType(l_id) ? false : true);
@@ -1101,9 +1272,13 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
           TypeId tmp_r = stripSharedRef(r_id);
           if (tmp_r != InvalidType) {
             bool ok = true;
-            if (op == AssignOp::AddAssign || op == AssignOp::SubAssign || op == AssignOp::MulAssign || op == AssignOp::DivAssign || op == AssignOp::RemAssign) {
+            if (op == AssignOp::AddAssign || op == AssignOp::SubAssign ||
+                op == AssignOp::MulAssign || op == AssignOp::DivAssign ||
+                op == AssignOp::RemAssign) {
               ok = (isIntType(tmp_r) && tmp_r == l_id);
-            } else if (op == AssignOp::BitAndAssign || op == AssignOp::BitOrAssign || op == AssignOp::BitXorAssign) {
+            } else if (op == AssignOp::BitAndAssign ||
+                       op == AssignOp::BitOrAssign ||
+                       op == AssignOp::BitXorAssign) {
               ok = ((isIntType(tmp_r) || isBoolType(tmp_r)) && tmp_r == l_id);
             } else if (op == AssignOp::ShlAssign || op == AssignOp::ShrAssign) {
               ok = isIntType(tmp_r);
