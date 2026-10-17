@@ -18,6 +18,7 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   constState.clear();
   types.clear();
   structFieldTypes.clear();
+  structFieldMap.clear();
   structLayouts.clear();
   layoutState.clear();
   exprTypes.clear();
@@ -267,12 +268,10 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
         return InvalidSymbol;
       }
       structId = it->second;
-      // TODO LATER
       if (symbols[structId].kind == SymbolKind::BuiltinType) {
-        // Box::<T>::new / Vec::<T>::new：内建构造，P6 先按 wildcard 放行，P8/P9
-        // 实现
-        if (path.segments.size() == 2 && path.segments[1].name == "new") {
-          return InvalidSymbol; // 不报错、不写 bindings
+        if (path.segments.size() == 2 && (path.segments[1].name == "new" ||
+                                          path.segments[1].name == "clone")) {
+          return InvalidSymbol;
         }
         error();
         return InvalidSymbol;
@@ -359,7 +358,7 @@ TypeId SemanticAnalyzer::resolveBlock(const BlockExpr &block, TypeId expected) {
   popScope();
   if (diverged) {
     return neverType();
-  } else  {
+  } else {
     return (block.tail != nullptr ? tailType : unitType());
   }
 }
@@ -399,7 +398,8 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
   currentReturnType = res_type;
   if (fn.body != nullptr) {
     TypeId body_type = resolveBlock(*fn.body, res_type);
-    if (body_type != InvalidType && body_type != res_type && !isNever(body_type)) {
+    if (body_type != InvalidType && body_type != res_type &&
+        !isNever(body_type)) {
       error();
     }
   }
@@ -409,9 +409,7 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
 }
 void SemanticAnalyzer::resolveCrate(const Crate &crate) {
   for (const auto &item : crate.items) {
-    if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
-      resolveFunction(*fn, false);
-    } else if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
+    if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
       auto it = typeTable.find(sd->name);
       if (it == typeTable.end()) {
         continue;
@@ -426,8 +424,16 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
           fieldType = resolveTypeId(*field.type, ok);
         }
         structFieldTypes[id].push_back(fieldType);
+        structFieldMap[id][field.name] = fieldType;
       }
       currentStruct = tmp_id;
+    }
+  }
+  for (const auto &item : crate.items) {
+    if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
+      resolveFunction(*fn, false);
+    } else if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
+      continue;
     } else if (auto *cd = dynamic_cast<const ConstDecl *>(item.get())) {
       if (cd->type != nullptr) {
         resolveType(*cd->type);
@@ -902,13 +908,12 @@ bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
     }
     return symbols[it->second].mutableBinding;
   }
+  return isMutableAccess(e);
   if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
     return isMutablePlace(*field->receiver) || !isPlace(*field->receiver);
-  }
-  if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
     return isMutablePlace(*index->base) || !isPlace(*index->base);
-  }
-  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
     if (unary->op != UnaryOp::Deref) {
       return false;
     }
@@ -919,13 +924,98 @@ bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
     const TypeInfo &info = types.get(it->second);
     if (info.kind == TypeKind::Ref) {
       return info.refMut;
-    }
-    if (info.kind == TypeKind::Box) {
+    } else if (info.kind == TypeKind::Box) {
       return true;
     }
     return false;
   }
   return false;
+}
+bool SemanticAnalyzer::isMutableAccess(const Expr &e) {
+  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
+    auto it = bindings.find(path);
+    if (it == bindings.end()) {
+      return false;
+    }
+    int id = it->second;
+    if (symbols[id].mutableBinding) {
+      return true;
+    }
+    TypeId type = symbols[id].type;
+    if (type != InvalidType) {
+      const TypeInfo &info = types.get(type);
+      if (info.kind == TypeKind::Ref && info.refMut) {
+        return true;
+      }
+    }
+    return false;
+  } else if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
+    return isMutableAccess(*field->receiver) || !isPlace(*field->receiver);
+  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    return isMutableAccess(*index->base) || !isPlace(*index->base);
+  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    if (unary->op != UnaryOp::Deref) {
+      return false;
+    }
+    auto it = exprTypes.find(unary->operand.get());
+    if (it == exprTypes.end() || it->second == InvalidType) {
+      return true;
+    }
+    const TypeInfo &info = types.get(it->second);
+    if (info.kind == TypeKind::Ref) {
+      return info.refMut;
+    } else if (info.kind == TypeKind::Box) {
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+bool SemanticAnalyzer::isCopyType(TypeId id) {
+  if (id == InvalidType) {
+    return true;
+  }
+  const TypeInfo &info = types.get(id);
+  auto kind = info.kind;
+  if (isIntType(id) || isBoolType(id) || isUnit(id)) {
+    return true;
+  } else if (kind == TypeKind::Ref) {
+    return true;
+  } else if (kind == TypeKind::Box || kind == TypeKind::Vec) {
+    return false;
+  } else if (kind == TypeKind::Never) {
+    return false;
+  } else if (kind == TypeKind::Array) {
+    return isCopyType(info.inner);
+  } else if (kind == TypeKind::Struct) {
+    const StructDecl *stru =
+        dynamic_cast<const StructDecl *>(symbols[info.structId].decl);
+    if (stru == nullptr || !stru->derives.copy) {
+      return false;
+    }
+    auto it = structFieldTypes.find(info.structId);
+    if (it == structFieldTypes.end()) {
+      return false;
+    }
+    for (auto fieldtype : it->second) {
+      if (!isCopyType(fieldtype)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+TypeId SemanticAnalyzer::autoDerefContainers(TypeId t) {
+  while (t != InvalidType) {
+    const TypeInfo &info = types.get(t);
+    if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
+      t = info.inner;
+    } else {
+      break;
+    }
+  }
+  return t;
 }
 int alignUp(int now, int base) { return (now + base - 1) / base * base; }
 bool SemanticAnalyzer::typeSizeAlign(TypeId id, uint32_t &size,
@@ -1086,9 +1176,11 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       TypeId then_id = resolveBlock(*ifex->then, expected);
       TypeId else_id = infer(*ifex->elseBranch, expected);
       if (expected != InvalidType) {
-        if (then_id != InvalidType && then_id != expected && !isNever(then_id)) {
+        if (then_id != InvalidType && then_id != expected &&
+            !isNever(then_id)) {
           error();
-        } else if (else_id != InvalidType && else_id != expected && !isNever(else_id)) {
+        } else if (else_id != InvalidType && else_id != expected &&
+                   !isNever(else_id)) {
           error();
         }
         res = expected;
@@ -1144,7 +1236,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     int idx = -1;
     if (!loops.empty() && !loops.back().isBarrier) {
       idx = (int)loops.size() - 1;
-    } 
+    }
     if (idx == -1) {
       error();
     } else if (breakex->value != nullptr) {
@@ -1152,7 +1244,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         error();
       }
       TypeId type = infer(*breakex->value, loops[idx].expected);
-      if (loops[idx].expected != InvalidType && type != InvalidType && type != loops[idx].expected && !isNever(type)) {
+      if (loops[idx].expected != InvalidType && type != InvalidType &&
+          type != loops[idx].expected && !isNever(type)) {
         error();
       }
       loops[idx].breakTypes.push_back(type);
@@ -1164,7 +1257,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     int idx = -1;
     if (!loops.empty() && !loops.back().isBarrier) {
       idx = (int)loops.size() - 1;
-    } 
+    }
     if (idx == -1) {
       error();
     }
@@ -1172,7 +1265,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
   } else if (auto returnex = dynamic_cast<const ReturnExpr *>(&expr)) {
     if (returnex->value != nullptr) {
       TypeId id = infer(*returnex->value, currentReturnType);
-      if (currentReturnType != InvalidType && id != InvalidType && id != currentReturnType && !isNever(id)) {
+      if (currentReturnType != InvalidType && id != InvalidType &&
+          id != currentReturnType && !isNever(id)) {
         error();
       }
     } else {
@@ -1332,17 +1426,81 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
     }
 
-  } else if (auto idx = dynamic_cast<const IndexExpr *>(&expr)) {
-    infer(*idx->base, InvalidType);
-    infer(*idx->index, InvalidType);
+  } else if (auto ix = dynamic_cast<const IndexExpr *>(&expr)) {
+    TypeId base = autoDerefContainers(infer(*ix->base, InvalidType));
+    TypeId idx = infer(*ix->index, types.intern(TypeInfo{TypeKind::Usize}));
+    if (idx != InvalidType && types.get(idx).kind != TypeKind::Usize) {
+      error();
+    }
+    if (base == InvalidType) {
+      res = InvalidType;
+    } else {
+      const TypeInfo &info = types.get(base);
+      if (info.kind == TypeKind::Array || info.kind == TypeKind::Vec) {
+        res = info.inner;
+      } else {
+        error();
+        res = InvalidType;
+      }
+    }
   } else if (auto call = dynamic_cast<const CallExpr *>(&expr)) {
     if (auto path = dynamic_cast<const PathExpr *>(call->callee.get())) {
       int id = resolvePath(*path);
       if (id != InvalidSymbol && !symbols[id].callable) {
         error();
       }
-      for (auto &arg : call->args) {
-        infer(*arg, InvalidType);
+      bool builtin = false;
+      if (path->segments.size() >= 2) {
+        const PathSegment &s0 = path->segments[0];
+        const PathSegment &s1 = path->segments[1];
+        if (s0.kind == PathSegmentKind::Ident &&
+            (s0.name == "Box" || s0.name == "Vec")) {
+          if (s0.genericArgs.size() != 1) {
+            error();
+          } else {
+            bool ok = false;
+            TypeId inner = resolveTypeId(*s0.genericArgs[0], ok);
+            if (ok) {
+              builtin = true;
+              if (s0.name == "Box" && s1.name == "new") {
+                if (call->args.size() != 1) {
+                  error();
+                } else {
+                  TypeId a = infer(*call->args[0], inner);
+                  if (a != InvalidType && inner != InvalidType && a != inner) {
+                    error();
+                  }
+                }
+                res = types.intern(TypeInfo{TypeKind::Box, inner});
+              } else if (s0.name == "Vec" && s1.name == "new") {
+                if (!call->args.empty()) {
+                  error();
+                }
+                res = types.intern(TypeInfo{TypeKind::Vec, inner});
+              } else if (s0.name == "Vec" && s1.name == "clone") {
+                TypeId vecType = types.intern(TypeInfo{TypeKind::Vec, inner});
+                TypeId refInner =
+                    types.intern(TypeInfo{TypeKind::Ref, vecType, false});
+                if (call->args.size() != 1) {
+                  error();
+                } else {
+                  TypeId a = infer(*call->args[0], refInner);
+                  if (a != InvalidType && a != refInner) {
+                    error();
+                  }
+                }
+                res = vecType;
+              } else {
+                builtin = false;
+              }
+            }
+          }
+        }
+      }
+      if (!builtin) {
+        for (auto &arg : call->args) {
+          infer(*arg, InvalidType);
+        }
       }
     } else {
       infer(*call->callee, InvalidType);
@@ -1351,35 +1509,177 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
     }
   } else if (auto array = dynamic_cast<const ArrayLit *>(&expr)) {
+    bool array_expected = (expected != InvalidType &&
+                           types.get(expected).kind == TypeKind::Array);
+    TypeId elem_expected = InvalidType, elem_type = InvalidType;
+    int len = 0;
+    if (array_expected) {
+      elem_expected = types.get(expected).inner;
+      len = types.get(expected).len;
+    }
     for (auto &elem : array->elements) {
-      infer(*elem, InvalidType);
+      TypeId type = infer(*elem, elem_expected);
+      if (array_expected) {
+        if (type != InvalidType && elem_expected != InvalidType &&
+            type != elem_expected) {
+          error();
+        }
+      } else {
+        elem_type = joinTypes(elem_type, type);
+      }
     }
+    if (array_expected && array->elements.size() != len) {
+      error();
+    }
+    res = types.intern(TypeInfo{TypeKind::Array,
+                                array_expected ? elem_expected : elem_type,
+                                false, (uint32_t)array->elements.size()});
   } else if (auto array = dynamic_cast<const ArrayRepeat *>(&expr)) {
-    infer(*array->elem, InvalidType);
-    if (array->count != nullptr) {
-      calcConstLength(*array->count);
+    bool array_expected = (expected != InvalidType &&
+                           types.get(expected).kind == TypeKind::Array);
+    TypeId elem_expected = InvalidType;
+    if (array_expected) {
+      elem_expected = types.get(expected).inner;
     }
-  } else if (auto field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
-    infer(*field->receiver, InvalidType);
-  } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
-    infer(*method->receiver, InvalidType);
-    for (auto &genericarg : method->genericArgs) {
-      resolveType(*genericarg);
-    }
-    for (auto &arg : method->args) {
-      infer(*arg, InvalidType);
-    }
-  } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
-    for (auto &path : stru->path) {
-      if (typeTable.find(path.name) == typeTable.end()) {
+    TypeId elem_type = infer(*array->elem, elem_expected);
+    ConstVal val;
+    if (!calcConstValue(*array->count, ConstType::Usize, val)) {
+      res = InvalidType;
+    } else {
+      uint32_t len = val.value;
+      if (len > 1 && !isCopyType(elem_type)) {
         error();
       }
-      for (auto &arg : path.genericArgs) {
-        resolveType(*arg);
+      if (array_expected && len != types.get(expected).len) {
+        error();
+      }
+      TypeId resultElem = array_expected ? elem_expected : elem_type;
+      res = types.intern(TypeInfo{TypeKind::Array, resultElem, false, len});
+    }
+  } else if (auto field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
+    TypeId receiver_type = infer(*field->receiver, InvalidType);
+    receiver_type = autoDerefContainers(receiver_type);
+    if (receiver_type == InvalidType) {
+      res = InvalidType;
+    } else if (types.get(receiver_type).kind != TypeKind::Struct) {
+      error();
+      res = InvalidType;
+    } else {
+      int stru_id = types.get(receiver_type).structId;
+      auto it = structFieldMap.find(stru_id);
+      if (it == structFieldMap.end()) {
+        error();
+        res = InvalidType;
+      } else {
+        auto tmp = it->second.find(field->field);
+        if (tmp == it->second.end()) {
+          error();
+          res = InvalidType;
+        } else {
+          res = tmp->second;
+        }
       }
     }
-    for (auto &f : stru->fields) {
-      infer(*f.value, InvalidType);
+  } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
+    TypeId receiver_type =
+        autoDerefContainers(infer(*method->receiver, InvalidType));
+    TypeKind receiver_kind =
+        (receiver_type == InvalidType ? TypeKind::Unit
+                                      : types.get(receiver_type).kind);
+    TypeId elem_type = InvalidType;
+    if (receiver_kind == TypeKind::Array || receiver_kind == TypeKind::Vec) {
+      elem_type = types.get(receiver_type).inner;
+    }
+    TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
+    if (method->method == "len" &&
+        (receiver_kind == TypeKind::Array || receiver_kind == TypeKind::Vec)) {
+      if (!method->args.empty()) {
+        error();
+      }
+      res = usizeT;
+    } else if (method->method == "is_empty" && receiver_kind == TypeKind::Vec) {
+      if (!method->args.empty()) {
+        error();
+      }
+      res = types.intern(TypeInfo{TypeKind::Bool});
+    } else if (method->method == "push" && receiver_kind == TypeKind::Vec) {
+      if (method->args.size() != 1) {
+        error();
+      } else {
+        TypeId a = infer(*method->args[0], elem_type);
+        if (a != InvalidType && elem_type != InvalidType && a != elem_type) {
+          error();
+        }
+      }
+      res = unitType();
+    } else if (method->method == "remove" && receiver_kind == TypeKind::Vec) {
+      if (method->args.size() != 1) {
+        error();
+      } else {
+        TypeId a = infer(*method->args[0], usizeT);
+        if (a != InvalidType && types.get(a).kind != TypeKind::Usize) {
+          error();
+        }
+      }
+      res = elem_type;
+    } else {
+      for (auto &arg : method->args) {
+        infer(*arg, InvalidType);
+      }
+      res = InvalidType;
+    }
+  } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
+    int structId = InvalidSymbol;
+    if (!stru->path.empty()) {
+      const PathSegment &first = stru->path[0];
+      if (first.kind == PathSegmentKind::SelfType) {
+        if (currentStruct != InvalidSymbol) {
+          structId = currentStruct;
+        }
+      } else if (first.kind == PathSegmentKind::Ident) {
+        auto it = typeTable.find(first.name);
+        if (it != typeTable.end() &&
+            symbols[it->second].kind == SymbolKind::Struct) {
+          structId = it->second;
+        }
+      }
+    }
+    if (structId == InvalidSymbol) {
+      error();
+      res = InvalidType;
+    } else {
+      auto it = structFieldMap.find(structId);
+      if (it == structFieldMap.end()) {
+        error();
+        res = InvalidType;
+      } else {
+        const auto &fieldmap = it->second;
+        std::unordered_map<std::string, bool> visited;
+        for (auto &init : stru->fields) {
+          auto fit = fieldmap.find(init.name);
+          if (fit == fieldmap.end()) {
+            error();
+            infer(*init.value, InvalidType);
+            continue;
+          } else if (visited.find(init.name) != visited.end()) {
+            error();
+          } else {
+            visited[init.name] = true;
+          }
+          TypeId type = infer(*init.value, fit->second);
+          if (type != InvalidType && fit->second != InvalidType &&
+              type != fit->second) {
+            error();
+          }
+        }
+        for (auto &field : fieldmap) {
+          if (visited.find(field.first) == visited.end()) {
+            error();
+          }
+        }
+        res = types.intern(
+            TypeInfo{TypeKind::Struct, InvalidType, false, 0, structId});
+      }
     }
   }
   exprTypes[&expr] = res;

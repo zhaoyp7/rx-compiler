@@ -47,6 +47,7 @@ private:
 
   TypeArena types;
   std::unordered_map<int, std::vector<TypeId>> structFieldTypes;
+  std::unordered_map<int, std::unordered_map<std::string, TypeId>> structFieldMap;
   std::unordered_map<int, StructLayout> structLayouts;
   std::unordered_map<int, int> layoutState; // 0 未访问 1 正在求值 2 成功 3 失败
 
@@ -65,6 +66,9 @@ private:
   bool typesCompatible(TypeId a, TypeId b);
   bool isPlace(const Expr &e);
   bool isMutablePlace(const Expr &e);
+  bool isMutableAccess(const Expr &e);
+  bool isCopyType(TypeId t);
+  TypeId autoDerefContainers(TypeId t);
   bool isUnit(TypeId t);
   bool isNever(TypeId t);
   bool isUnitCompatible(TypeId t);
