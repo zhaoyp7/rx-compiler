@@ -45,9 +45,18 @@ private:
   std::unordered_map<int, StructLayout> structLayouts;
   std::unordered_map<int, int> layoutState; // 0 未访问 1 正在求值 2 成功 3 失败
 
+  std::unordered_map<const Expr *, TypeId> exprTypes;
+
   int addSymbol(const std::string &name, SymbolKind kind, SourceSpan span,
                 const Node *decl);
   bool hasSelfParam(const FnDecl &fn);
+  bool isIntType(TypeId t);
+  bool isSignedType(TypeId t);
+  bool isBoolType(TypeId t);
+  TypeId stripSharedRef(TypeId t);
+  bool typesCompatible(TypeId a, TypeId b);
+  bool isPlace(const Expr &e);
+  bool isMutablePlace(const Expr &e);
   void error();
   void pushScope();
   void popScope();
@@ -75,6 +84,7 @@ private:
   ConstType typeFromSyntax(const TypeSyntax &type, bool &ok);
 
   TypeId resolveTypeId(const TypeSyntax &type, bool &ok);
+  TypeId infer(const Expr &expr, TypeId expected = InvalidType);
   std::string typeToString(TypeId id) const;
   bool layoutStruct(int id);
   void checkLayouts();

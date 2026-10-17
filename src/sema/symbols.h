@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include "ast/ast.h"
+#include "types.h"
 
 namespace rx {
 
@@ -29,6 +30,8 @@ struct Symbol {
   SourceSpan span;
   const Node *decl = nullptr;
   int owner = InvalidSymbol;
+  TypeId type = InvalidType;
+  bool mutableBinding = false;
 };
 
 using Scope = std::unordered_map<std::string, int>;

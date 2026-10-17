@@ -20,6 +20,7 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   structFieldTypes.clear();
   structLayouts.clear();
   layoutState.clear();
+  exprTypes.clear();
   currentStruct = InvalidSymbol;
   inReceiverMethod = false;
   failed = false;
@@ -264,6 +265,15 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
         return InvalidSymbol;
       }
       structId = it->second;
+      // TODO LATER
+      if (symbols[structId].kind == SymbolKind::BuiltinType) {
+        // Box::<T>::new / Vec::<T>::new：内建构造，P6 先按 wildcard 放行，P8/P9 实现
+        if (path.segments.size() == 2 && path.segments[1].name == "new") {
+          return InvalidSymbol;   // 不报错、不写 bindings
+        }
+        error();
+        return InvalidSymbol;
+      }
     } else if (first.kind == PathSegmentKind::SelfType) {
       if (currentStruct == InvalidSymbol) {
         error();
@@ -292,99 +302,25 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
   return InvalidSymbol;
 }
 void SemanticAnalyzer::resolveExpr(const Expr &expr) {
-  if (auto path = dynamic_cast<const PathExpr *>(&expr)) {
-    resolvePath(*path);
-  } else if (auto block = dynamic_cast<const BlockExpr *>(&expr)) {
-    resolveBlock(*block);
-  } else if (auto cast = dynamic_cast<const CastExpr *>(&expr)) {
-    resolveExpr(*cast->expr);
-    resolveType(*cast->type);
-  } else if (auto ifex = dynamic_cast<const IfExpr *>(&expr)) {
-    resolveExpr(*ifex->cond);
-    resolveBlock(*ifex->then);
-    if (ifex->elseBranch != nullptr) {
-      resolveExpr(*ifex->elseBranch);
-    }
-  } else if (auto loop = dynamic_cast<const LoopExpr *>(&expr)) {
-    resolveBlock(*loop->body);
-  } else if (auto whileex = dynamic_cast<const WhileExpr *>(&expr)) {
-    resolveExpr(*whileex->cond);
-    resolveBlock(*whileex->body);
-  } else if (auto breakex = dynamic_cast<const BreakExpr *>(&expr)) {
-    if (breakex->value != nullptr) {
-      resolveExpr(*breakex->value);
-    }
-  } else if (auto returnex = dynamic_cast<const ReturnExpr *>(&expr)) {
-    if (returnex->value != nullptr) {
-      resolveExpr(*returnex->value);
-    }
-  } else if (auto binary = dynamic_cast<const BinaryExpr *>(&expr)) {
-    resolveExpr(*binary->lhs);
-    resolveExpr(*binary->rhs);
-  } else if (auto assign = dynamic_cast<const AssignExpr *>(&expr)) {
-    resolveExpr(*assign->lhs);
-    resolveExpr(*assign->rhs);
-  } else if (auto unary = dynamic_cast<const UnaryExpr *>(&expr)) {
-    resolveExpr(*unary->operand);
-  } else if (auto idx = dynamic_cast<const IndexExpr *>(&expr)) {
-    resolveExpr(*idx->base);
-    resolveExpr(*idx->index);
-  } else if (auto call = dynamic_cast<const CallExpr *>(&expr)) {
-    if (auto path = dynamic_cast<const PathExpr *>(call->callee.get())) {
-      int id = resolvePath(*path);
-      if (id != InvalidSymbol && !symbols[id].callable) {
-        error();
-      }
-      for (auto &arg : call->args) {
-        resolveExpr(*arg);
-      }
-    } else {
-      resolveExpr(*call->callee);
-      for (auto &arg : call->args) {
-        resolveExpr(*arg);
-      }
-    }
-  } else if (auto array = dynamic_cast<const ArrayLit *>(&expr)) {
-    for (auto &elem : array->elements) {
-      resolveExpr(*elem);
-    }
-  } else if (auto array = dynamic_cast<const ArrayRepeat *>(&expr)) {
-    resolveExpr(*array->elem);
-    if (array->count != nullptr) {
-      calcConstLength(*array->count);
-    }
-  } else if (auto field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
-    resolveExpr(*field->receiver);
-  } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
-    resolveExpr(*method->receiver);
-    for (auto &genericarg : method->genericArgs) {
-      resolveType(*genericarg);
-    }
-    for (auto &arg : method->args) {
-      resolveExpr(*arg);
-    }
-  } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
-    for (auto &path : stru->path) {
-      if (typeTable.find(path.name) == typeTable.end()) {
-        error();
-        return;
-      }
-      for (auto &arg : path.genericArgs) {
-        resolveType(*arg);
-      }
-    }
-    for (auto &f : stru->fields) {
-      resolveExpr(*f.value);
-    }
-  }
+  infer(expr, InvalidType);
 }
 void SemanticAnalyzer::resolveStmt(const Stmt &stmt) {
   if (auto let = dynamic_cast<const LetStmt *>(&stmt)) {
+    TypeId expected_id = InvalidType;
     if (let->type != nullptr) {
-      resolveType(*let->type);
+      bool ok = false;
+      expected_id = resolveTypeId(*let->type, ok);
+      if (!ok) {
+        expected_id = InvalidType;
+      }
     }
-    resolveExpr(*let->init);
+    TypeId init = infer(*let->init, expected_id);
+    if (expected_id != InvalidType && init != InvalidType && init != expected_id) {
+      error();
+    }
     int id = addSymbol(let->name, SymbolKind::Local, stmt.span, &stmt);
+    symbols[id].type = (let->type != nullptr) ? expected_id : init;
+    symbols[id].mutableBinding = let->mut;
     bindLocal(let->name, id);
   } else if (auto expr = dynamic_cast<const ExprStmt *>(&stmt)) {
     resolveExpr(*expr->expr);
@@ -415,10 +351,13 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
       }
       tmp[param.name] = true;
       int id = addSymbol(param.name, SymbolKind::Param, fn.span, nullptr);
+      if (param.type != nullptr) {
+        bool ok = false;
+        TypeId tmp = resolveTypeId(*param.type, ok);
+        symbols[id].type = ok ? tmp : InvalidType;
+      }
+      symbols[id].mutableBinding = param.mutBinding;
       bindLocal(param.name, id);
-    }
-    if (param.type != nullptr) {
-      resolveType(*param.type);
     }
   }
   if (fn.ret != nullptr) {
@@ -821,6 +760,98 @@ std::string SemanticAnalyzer::typeToString(TypeId id) const {
     return types.toString(id);
   }
 }
+bool SemanticAnalyzer::isIntType(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  TypeKind kind = types.get(t).kind;
+  return kind == TypeKind::I32 || kind == TypeKind::U32 ||
+         kind == TypeKind::Isize || kind == TypeKind::Usize;
+}
+bool SemanticAnalyzer::isSignedType(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  TypeKind kind = types.get(t).kind;
+  return kind == TypeKind::I32 || kind == TypeKind::Isize;
+}
+bool SemanticAnalyzer::isBoolType(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  return types.get(t).kind == TypeKind::Bool;
+}
+TypeId SemanticAnalyzer::stripSharedRef(TypeId t) {
+  if (t == InvalidType) {
+    return InvalidType;
+  }
+  const TypeInfo &info = types.get(t);
+  if (info.kind == TypeKind::Ref && !info.refMut) {
+    return info.inner;
+  }
+  return t;
+}
+bool SemanticAnalyzer::typesCompatible(TypeId a, TypeId b) {
+  if (a == InvalidType || b == InvalidType) {
+    return true;
+  }
+  return a == b;
+}
+bool SemanticAnalyzer::isPlace(const Expr &e) {
+  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
+    auto it = bindings.find(path);
+    if (it == bindings.end()) {
+      return false;
+    }
+    SymbolKind kind = symbols[it->second].kind;
+    return kind == SymbolKind::Local || kind == SymbolKind::Param;
+  }
+  if (dynamic_cast<const FieldAccessExpr *>(&e) != nullptr ||
+      dynamic_cast<const IndexExpr *>(&e) != nullptr) {
+    return true;
+  }
+  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    return unary->op == UnaryOp::Deref;
+  }
+  return false;
+}
+bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
+  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
+    auto it = bindings.find(path);
+    if (it == bindings.end()) {
+      return false;
+    }
+    SymbolKind kind = symbols[it->second].kind;
+    if (kind != SymbolKind::Local && kind != SymbolKind::Param) {
+      return false;
+    }
+    return symbols[it->second].mutableBinding;
+  }
+  if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
+    return isMutablePlace(*field->receiver) || !isPlace(*field->receiver);
+  }
+  if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    return isMutablePlace(*index->base) || !isPlace(*index->base);
+  }
+  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    if (unary->op != UnaryOp::Deref) {
+      return false;
+    }
+    auto it = exprTypes.find(unary->operand.get());
+    if (it == exprTypes.end() || it->second == InvalidType) {
+      return true;
+    }
+    const TypeInfo &info = types.get(it->second);
+    if (info.kind == TypeKind::Ref) {
+      return info.refMut;
+    }
+    if (info.kind == TypeKind::Box) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
 int alignUp(int now, int base) { return (now + base - 1) / base * base; }
 bool SemanticAnalyzer::typeSizeAlign(TypeId id, uint32_t &size,
                                      uint32_t &align) {
@@ -902,6 +933,275 @@ void SemanticAnalyzer::checkLayouts() {
       error();
     }
   }
+}
+
+TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
+  TypeId res = InvalidType;
+  if (auto *lit = dynamic_cast<const IntLit *>(&expr)) {
+    // 字面量选型（见下）
+    // TODO
+    IntSuffix suf = lit->suffix;
+    if (suf == IntSuffix::I32) {
+      res = types.intern(TypeInfo{TypeKind::I32});
+    } else if (suf == IntSuffix::U32) {
+      res = types.intern(TypeInfo{TypeKind::U32});
+    } else if (suf == IntSuffix::Isize) {
+      res = types.intern(TypeInfo{TypeKind::Isize});
+    } else if (suf == IntSuffix::Usize) {
+      res = types.intern(TypeInfo{TypeKind::Usize});
+    } else {
+      TypeKind kind = expected != InvalidType ? types.get(expected).kind : TypeKind::Unit;
+      if (kind == TypeKind::I32 || kind == TypeKind::U32 ||
+          kind == TypeKind::Isize || kind == TypeKind::Usize) {
+        res = expected;
+      } else {
+        res = types.intern(TypeInfo{TypeKind::I32});
+      }
+    }
+  } else if (auto *tmp = dynamic_cast<const BoolLit *>(&expr)) {
+    res = types.intern(TypeInfo{TypeKind::Bool});
+  } else if (auto *tmp = dynamic_cast<const UnitLit *>(&expr)) {
+    res = types.intern(TypeInfo{TypeKind::Unit});
+  } else if (auto path = dynamic_cast<const PathExpr *>(&expr)) {
+    int id = resolvePath(*path);
+    if (id != InvalidSymbol) {
+      res = symbols[id].type;
+    }
+  } else if (auto cast = dynamic_cast<const CastExpr *>(&expr)) {
+    bool ok = false;
+    TypeId from = infer(*cast->expr, InvalidType);
+    TypeId to = resolveTypeId(*cast->type, ok);
+    if (!ok) {
+      res = InvalidType;
+    } else {
+      bool bad = false;
+      if (from != InvalidType) {
+        TypeKind from_kind = types.get(from).kind;
+        TypeKind to_kind = types.get(to).kind;
+        bool from_int = from_kind == TypeKind::I32 || from_kind == TypeKind::U32 ||
+                      from_kind == TypeKind::Isize || from_kind == TypeKind::Usize;
+        bool from_bool = from_kind == TypeKind::Bool;
+        bool to_int = to_kind == TypeKind::I32 || to_kind == TypeKind::U32 ||
+                      to_kind == TypeKind::Isize || to_kind == TypeKind::Usize;
+        if (to_kind == TypeKind::Bool || from_kind == TypeKind::Ref) {
+          bad = true;
+        } else if (!(from_int && to_int) && !(from_bool && to_int)) {
+          bad = true;
+        }
+      }
+      if (bad) {
+        error();
+      }
+      res = to;      
+    }
+  } else if (auto block = dynamic_cast<const BlockExpr *>(&expr)) {
+    resolveBlock(*block);
+  } else if (auto ifex = dynamic_cast<const IfExpr *>(&expr)) {
+    infer(*ifex->cond, InvalidType);
+    resolveBlock(*ifex->then);
+    if (ifex->elseBranch != nullptr) {
+      infer(*ifex->elseBranch, InvalidType);
+    }
+  } else if (auto loop = dynamic_cast<const LoopExpr *>(&expr)) {
+    resolveBlock(*loop->body);
+  } else if (auto whileex = dynamic_cast<const WhileExpr *>(&expr)) {
+    infer(*whileex->cond, InvalidType);
+    resolveBlock(*whileex->body);
+  } else if (auto breakex = dynamic_cast<const BreakExpr *>(&expr)) {
+    if (breakex->value != nullptr) {
+      infer(*breakex->value, InvalidType);
+    }
+  } else if (auto returnex = dynamic_cast<const ReturnExpr *>(&expr)) {
+    if (returnex->value != nullptr) {
+      infer(*returnex->value, InvalidType);
+    }
+  } else if (auto binary = dynamic_cast<const BinaryExpr *>(&expr)) {
+    TypeId l_id = infer(*binary->lhs, InvalidType);
+    TypeId r_id = infer(*binary->rhs, InvalidType);
+    BinaryOp op = binary->op;
+    if (op == BinaryOp::Add || op == BinaryOp::Sub || op == BinaryOp::Mul || op == BinaryOp::Div || op == BinaryOp::Rem) {
+      auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
+      if (tmp_l != InvalidType && !isIntType(tmp_l)) {
+        error();
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r)) {
+        error();
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+        error();
+      } else if (tmp_l != InvalidType) {
+        res = tmp_l;
+      } else if (tmp_r != InvalidType) {
+        res = tmp_r;
+      } else {
+        res = InvalidType;
+      }
+    } else if (op == BinaryOp::BitAnd || op == BinaryOp::BitOr || op == BinaryOp::BitXor) {
+      auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
+      if (tmp_l != InvalidType && !isIntType(tmp_l) && !isBoolType(tmp_l)) {
+        error();
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r) && !isBoolType(tmp_r)) {
+        error();
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+        error();
+      }
+      res = (tmp_l == InvalidType ? tmp_r : tmp_l);
+    } else if (op == BinaryOp::Shl || op == BinaryOp::Shr) {
+      auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
+      if (tmp_l != InvalidType && !isIntType(tmp_l)) {
+        error();
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r)) {
+        error();
+      } else {
+        res = tmp_l;
+      }
+    } else if (op == BinaryOp::Le || op == BinaryOp::Lt || op == BinaryOp::Ge || op == BinaryOp::Gt) {
+      auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
+      if (tmp_l != InvalidType && !isIntType(tmp_l) && !isBoolType(tmp_l)) {
+        error();
+      } else if (tmp_r != InvalidType && !isIntType(tmp_r) && !isBoolType(tmp_r)) {
+        error();
+      } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
+        error();
+      }
+      res = types.intern(TypeInfo{TypeKind::Bool});
+    } else if (op == BinaryOp::Eq || op == BinaryOp::Ne) {
+      res = types.intern(TypeInfo{TypeKind::Bool});
+    } else if (op == BinaryOp::LAnd || op == BinaryOp::LOr) {
+      if (l_id != InvalidType && !isBoolType(l_id)) {
+        error();
+      } else if (r_id != InvalidType && !isBoolType(r_id)) {
+        error();
+      }
+      res = types.intern(TypeInfo{TypeKind::Bool});
+    }
+  } else if (auto assign = dynamic_cast<const AssignExpr *>(&expr)) {
+    TypeId l_id = infer(*assign->lhs, InvalidType);
+    if (!isPlace(*assign->lhs) || !isMutablePlace(*assign->lhs)) {
+      error();
+    }
+    if (assign->op == AssignOp::Assign) {
+      TypeId r_id = infer(*assign->rhs, l_id);
+      if (l_id != InvalidType && r_id != InvalidType && l_id != r_id) {
+        error();
+      }
+    } else {
+      TypeId r_id = infer(*assign->rhs, InvalidType);
+      if (l_id != InvalidType) {
+        bool bad_lhs = false;
+        AssignOp op = assign->op;
+        if (op == AssignOp::AddAssign || op == AssignOp::SubAssign || op == AssignOp::MulAssign || op == AssignOp::DivAssign || op == AssignOp::RemAssign) {
+          bad_lhs = (isIntType(l_id) ? false : true);
+        } else if (op == AssignOp::BitAndAssign || op == AssignOp::BitOrAssign || op == AssignOp::BitXorAssign) {
+          bad_lhs = ((isIntType(l_id) || isBoolType(l_id)) ? false : true);
+        } else if (op == AssignOp::ShlAssign || op == AssignOp::ShrAssign) {
+          bad_lhs = (isIntType(l_id) ? false : true);
+        }
+        if (bad_lhs) {
+          error();
+        } else {
+          TypeId tmp_r = stripSharedRef(r_id);
+          if (tmp_r != InvalidType) {
+            bool ok = true;
+            if (op == AssignOp::AddAssign || op == AssignOp::SubAssign || op == AssignOp::MulAssign || op == AssignOp::DivAssign || op == AssignOp::RemAssign) {
+              ok = (isIntType(tmp_r) && tmp_r == l_id);
+            } else if (op == AssignOp::BitAndAssign || op == AssignOp::BitOrAssign || op == AssignOp::BitXorAssign) {
+              ok = ((isIntType(tmp_r) || isBoolType(tmp_r)) && tmp_r == l_id);
+            } else if (op == AssignOp::ShlAssign || op == AssignOp::ShrAssign) {
+              ok = isIntType(tmp_r);
+            }
+            if (!ok) {
+              error();
+            }
+          }
+        }
+      }
+    }
+  } else if (auto unary = dynamic_cast<const UnaryExpr *>(&expr)) {
+    TypeId type_id = infer(*unary->operand, InvalidType);
+    if (unary->op == UnaryOp::Neg) {
+      TypeId tmp = stripSharedRef(type_id);
+      if (tmp != InvalidType && !isSignedType(tmp)) {
+        error();
+      }
+      res = tmp;
+    } else if (unary->op == UnaryOp::Not) {
+      TypeId tmp = stripSharedRef(type_id);
+      if (tmp != InvalidType && !isIntType(tmp) && !isBoolType(tmp)) {
+        error();
+      }
+      res = tmp;
+    } else if (unary->op == UnaryOp::Ref) {
+      res = types.intern(TypeInfo{TypeKind::Ref, type_id, false});
+    } else if (unary->op == UnaryOp::RefMut) {
+      if (isPlace(*unary->operand) && !isMutablePlace(*unary->operand)) {
+        error();
+      }
+      res = types.intern(TypeInfo{TypeKind::Ref, type_id, true});
+    } else if (unary->op == UnaryOp::Deref) {
+      if (type_id == InvalidType) {
+        res = InvalidType;
+      } else {
+        const TypeInfo &info = types.get(type_id);
+        if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
+          res = info.inner;
+        } else {
+          error();
+          res = InvalidType;
+        }
+      }
+    }
+
+  } else if (auto idx = dynamic_cast<const IndexExpr *>(&expr)) {
+    infer(*idx->base, InvalidType);
+    infer(*idx->index, InvalidType);
+  } else if (auto call = dynamic_cast<const CallExpr *>(&expr)) {
+    if (auto path = dynamic_cast<const PathExpr *>(call->callee.get())) {
+      int id = resolvePath(*path);
+      if (id != InvalidSymbol && !symbols[id].callable) {
+        error();
+      }
+      for (auto &arg : call->args) {
+        infer(*arg, InvalidType);
+      }
+    } else {
+      infer(*call->callee, InvalidType);
+      for (auto &arg : call->args) {
+        infer(*arg, InvalidType);
+      }
+    }
+  } else if (auto array = dynamic_cast<const ArrayLit *>(&expr)) {
+    for (auto &elem : array->elements) {
+      infer(*elem, InvalidType);
+    }
+  } else if (auto array = dynamic_cast<const ArrayRepeat *>(&expr)) {
+    infer(*array->elem, InvalidType);
+    if (array->count != nullptr) {
+      calcConstLength(*array->count);
+    }
+  } else if (auto field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
+    infer(*field->receiver, InvalidType);
+  } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
+    infer(*method->receiver, InvalidType);
+    for (auto &genericarg : method->genericArgs) {
+      resolveType(*genericarg);
+    }
+    for (auto &arg : method->args) {
+      infer(*arg, InvalidType);
+    }
+  } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
+    for (auto &path : stru->path) {
+      if (typeTable.find(path.name) == typeTable.end()) {
+        error();
+      }
+      for (auto &arg : path.genericArgs) {
+        resolveType(*arg);
+      }
+    }
+    for (auto &f : stru->fields) {
+      infer(*f.value, InvalidType);
+    }
+  }
+  exprTypes[&expr] = res;
+  return res;
 }
 
 } // namespace rx
