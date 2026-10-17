@@ -4,6 +4,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <map>
+#include <unordered_set>
+
 
 #include "ast/ast.h"
 #include "symbols.h"
@@ -33,6 +36,13 @@ private:
   std::unordered_map<std::string, int> typeTable;
   std::unordered_map<std::string, int> valueTable;
   std::unordered_map<int, std::unordered_map<std::string, int>> assocTable;
+
+  std::unordered_map<int, std::vector<TypeId>> fnParamTypes;
+  std::unordered_map<int, TypeId> fnReturnTypes;
+  std::unordered_map<int, TypeId> fnReceiverTypes;
+  std::unordered_map<const FnDecl *, int> fnSymbols;
+
+  std::map<int, int> derivedCloneSymbols;
 
   std::vector<Scope> scopes;
   std::unordered_map<const Node *, int> bindings;
@@ -80,6 +90,7 @@ private:
   void popScope();
 
   void registerBuiltins();
+  void registerBuiltinSignatures();
   void collectCrate(const Crate &crate);
   void checkEntry();
 
@@ -87,6 +98,17 @@ private:
   void bindLocal(const std::string &name, int id);
 
   void resolveCrate(const Crate &crate);
+  void resolveSignatures(const Crate &crate);
+  void resolveSignature(const FnDecl &fn, int symbolId, int owner);
+  void bindSelf(const FnDecl &fn, int symbolId);
+  bool checkCallArgs(int symbolId, const std::vector<ExprPtr> &args, size_t startParam = 0);
+  int findUserMethod(TypeId receiver, const std::string &name, TypeId &selectedReceiver);
+  bool findBuiltinClone(TypeId receiver, TypeId &result);
+  bool checkDerives();
+  bool supportsClone(TypeId t, std::unordered_set<int> &visiting);
+  bool supportsPartialEq(TypeId t, std::unordered_set<int> &visiting);
+  bool supportsEq(TypeId t, std::unordered_set<int> &visiting);
+  int getDerivedClone(int structId);
   void resolveFunction(const FnDecl &fn, bool inImpl);
   void resolveType(const TypeSyntax &type);
   TypeId resolveBlock(const BlockExpr &block, TypeId expected = InvalidType);

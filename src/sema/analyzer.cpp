@@ -4,6 +4,8 @@
 #include "sema/types.h"
 #include <cstdint>
 #include <map>
+#include <unordered_set>
+
 
 namespace rx {
 bool SemanticAnalyzer::run(const Crate &crate) {
@@ -14,6 +16,11 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   scopes.clear();
   bindings.clear();
   implTargets.clear();
+  fnParamTypes.clear();
+  fnReturnTypes.clear();
+  fnReceiverTypes.clear();
+  fnSymbols.clear();
+  derivedCloneSymbols.clear();
   constValues.clear();
   constState.clear();
   types.clear();
@@ -29,9 +36,11 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   failed = false;
   symbols.push_back(Symbol{});
   registerBuiltins();
+  registerBuiltinSignatures();
   collectCrate(crate);
   resolveCrate(crate);
   checkLayouts();
+  checkDerives();
   checkEntry();
   return (failed == false);
 }
@@ -62,6 +71,393 @@ void SemanticAnalyzer::registerBuiltins() {
   valueTable["println_i32"] =
       addSymbol("println_i32", SymbolKind::BuiltinFn, SourceSpan{}, nullptr);
 }
+
+void SemanticAnalyzer::registerBuiltinSignatures() {
+  TypeId i32 = types.intern(TypeInfo{TypeKind::I32});
+  TypeId unit = unitType();
+  TypeId id = valueTable["get_i32"];
+  fnParamTypes[id] = {};
+  fnReturnTypes[id] = i32;
+  fnReceiverTypes[id] = InvalidType;
+  id = valueTable["print_i32"];
+  fnParamTypes[id] = {i32};
+  fnReturnTypes[id] = unit;
+  fnReceiverTypes[id] = InvalidType;
+  id = valueTable["println_i32"];
+  fnParamTypes[id] = {i32};
+  fnReturnTypes[id] = unit;
+  fnReceiverTypes[id] = InvalidType;
+}
+void SemanticAnalyzer::resolveSignatures(const Crate &crate) {
+  for (const auto &item : crate.items) {
+    if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
+      auto it = fnSymbols.find(fn);
+      if (it == fnSymbols.end()) {
+        error();
+        continue;
+      }
+      resolveSignature(*fn, it->second, InvalidSymbol);
+    } else if (auto *impl = dynamic_cast<const ImplDecl *>(item.get())) {
+      auto it = implTargets.find(impl);
+      if (it == implTargets.end()) {
+        error();
+        continue;
+      }
+      int owner = it->second;
+      for (auto &member : impl->members) {
+        if (auto *fn = dynamic_cast<const FnDecl *>(member.get())) {
+          auto it = fnSymbols.find(fn);
+          if (it == fnSymbols.end()) {
+            error();
+            continue;
+          }
+          resolveSignature(*fn, it->second, owner);
+        }
+      }
+    }
+  }
+}
+void SemanticAnalyzer::resolveSignature(const FnDecl &fn, int symbolId,
+                                        int owner) {
+  int last_struct = currentStruct;
+  currentStruct = owner;
+  std::vector<TypeId> params;
+  TypeId receiver = InvalidType;
+  int first_value = 0;
+  if (hasSelfParam(fn)) {
+    if (owner == InvalidSymbol) {
+      error();
+      receiver = InvalidType;
+    } else {
+      TypeId self_type = types.intern(
+          TypeInfo{TypeKind::Struct, InvalidType, false, 0, owner});
+      const Param &selfparam = fn.params[0];
+      if (!selfparam.byRef) {
+        receiver = self_type;
+      } else if (selfparam.byMutRef) {
+        receiver = types.intern(TypeInfo{TypeKind::Ref, self_type, true});
+      } else {
+        receiver = types.intern(TypeInfo{TypeKind::Ref, self_type, false});
+      }
+    }
+    fnReceiverTypes[symbolId] = receiver;
+    params.push_back(receiver);
+    first_value = 1;
+  } else {
+    fnReceiverTypes[symbolId] = InvalidType;
+  }
+  for (int i = first_value; i < (int)fn.params.size(); i++) {
+    const Param &param = fn.params[i];
+    if (param.kind != ParamKind::Value) {
+      error();
+      params.push_back(InvalidType);
+      continue;
+    }
+    if (param.type == nullptr) {
+      error();
+      params.push_back(InvalidType);
+    } else {
+      bool ok = false;
+      TypeId tmp = resolveTypeId(*param.type, ok);
+      params.push_back(ok ? tmp : InvalidType);
+    }
+  }
+  TypeId result = unitType();
+  if (fn.ret != nullptr) {
+    bool ok = false;
+    TypeId tmp = resolveTypeId(*fn.ret, ok);
+    result = ok ? tmp : InvalidType;
+  }
+  fnParamTypes[symbolId] = params;
+  fnReturnTypes[symbolId] = result;
+  currentStruct = last_struct;
+}
+void SemanticAnalyzer::bindSelf(const FnDecl &fn, int symbolId) {
+  if (!hasSelfParam(fn)) {
+    return;
+  }
+  TypeId receiver = InvalidType;
+  auto it = fnReceiverTypes.find(symbolId);
+  if (it != fnReceiverTypes.end()) {
+    receiver = it->second;
+  }
+  const Param *selfParam = nullptr;
+  for (auto &param : fn.params) {
+    if (param.kind == ParamKind::Self) {
+      selfParam = &param;
+      break;
+    }
+  }
+  if (selfParam == nullptr) {
+    return;
+  }
+  TypeId self_id = addSymbol("self", SymbolKind::Param, fn.span, nullptr);
+  symbols[self_id].type = receiver;
+  symbols[self_id].mutableBinding = selfParam->mutBinding;
+  bindLocal("self", self_id);
+}
+bool SemanticAnalyzer::checkCallArgs(int symbolId, const std::vector<ExprPtr> &args, size_t startParam) {
+  auto it = fnParamTypes.find(symbolId);
+  if (it == fnParamTypes.end()) {
+    for (auto &arg : args) {
+      infer(*arg, InvalidType);
+    }
+    return true;
+  }
+  const auto &params = it->second;
+  bool ok = true;
+  size_t expectedCount = params.size() > startParam ? params.size() - startParam : 0;
+  if (args.size() != expectedCount) {
+    error();
+    ok = false;
+  }
+  size_t n = std::max(args.size(), expectedCount);
+  for (size_t i = 0; i < n; i++) {
+    if (i >= args.size()) continue;
+    TypeId expected = (startParam + i < params.size())
+                          ? params[startParam + i]
+                          : InvalidType;
+    TypeId type = infer(*args[i], expected);
+    if (expected != InvalidType && type != InvalidType && expected != type) {
+      error();
+      ok = false;
+    }
+  }
+  return ok;
+}
+int SemanticAnalyzer::findUserMethod(TypeId receiver, const std::string &name, TypeId &selectedReceiver) {
+  std::vector<TypeId> candidates;
+  TypeId type = receiver;
+  while (type != InvalidType) {
+    candidates.push_back(type);
+    candidates.push_back(types.intern(TypeInfo{TypeKind::Ref, type, false}));
+    candidates.push_back(types.intern(TypeInfo{TypeKind::Ref, type, true}));
+    const TypeInfo &info = types.get(type);
+    if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
+      type = info.inner;
+    } else {
+      break;
+    }
+  }
+  for (TypeId candidate : candidates) {
+    int structId = InvalidSymbol;
+    const TypeInfo &ci = types.get(candidate);
+    if (ci.kind == TypeKind::Struct) {
+      structId = ci.structId;
+    } else if (ci.kind == TypeKind::Ref &&
+               types.get(ci.inner).kind == TypeKind::Struct) {
+      structId = types.get(ci.inner).structId;
+    }
+    if (structId == InvalidSymbol) continue;
+    auto tableIt = assocTable.find(structId);
+    if (tableIt != assocTable.end()) {
+      auto it = tableIt->second.find(name);
+      if (it != tableIt->second.end()) {
+        int id = it->second;
+        if (symbols[id].kind == SymbolKind::AssocFn &&
+            fnReceiverTypes[id] == candidate) {
+          selectedReceiver = candidate;
+          return id;
+        }
+      }
+    }
+    if (name == "clone" && ci.kind == TypeKind::Ref && !ci.refMut && types.get(ci.inner).kind == TypeKind::Struct) {
+      int sid = types.get(ci.inner).structId;
+      const StructDecl *sd =
+          dynamic_cast<const StructDecl *>(symbols[sid].decl);
+      if (sd != nullptr && sd->derives.clone) {
+        selectedReceiver = candidate;
+        return getDerivedClone(sid);
+      }
+    }
+  }
+  return InvalidSymbol;
+}
+bool SemanticAnalyzer::findBuiltinClone(TypeId receiver, TypeId &result) {
+  TypeId type = receiver;
+  while (type != InvalidType) {
+    const TypeInfo &info = types.get(type);
+    if (info.kind == TypeKind::Ref && !info.refMut) {
+      std::unordered_set<int> visiting;
+      if (supportsClone(info.inner, visiting)) {
+        result = info.inner;
+        return true;
+      }
+    }
+    std::unordered_set<int> visiting;
+    if (supportsClone(type, visiting)) {
+      result = type;
+      return true;
+    }
+    if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
+      type = info.inner;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+bool SemanticAnalyzer::checkDerives() {
+  bool allOk = true;
+  for (const auto &sym : symbols) {
+    if (sym.kind != SymbolKind::Struct) {
+      continue;
+    }
+    const StructDecl *sd = dynamic_cast<const StructDecl *>(sym.decl);
+    if (sd == nullptr) {
+      continue;
+    }
+    bool ok = true;
+    if (sd->derives.copy && !sd->derives.clone) {
+      ok = false;
+    }
+    if (sd->derives.eq && !sd->derives.partialEq) {
+      ok = false;
+    }
+    auto it = structFieldTypes.find(typeTable[sd->name]);
+    if (it != structFieldTypes.end()) {
+      for (TypeId ft : it->second) {
+        if (sd->derives.copy && !isCopyType(ft)) {
+          ok = false;
+        }
+        std::unordered_set<int> visiting;
+        if (sd->derives.clone && !supportsClone(ft, visiting)) {
+          ok = false;
+        }
+        visiting.clear();
+        if (sd->derives.partialEq && !supportsPartialEq(ft, visiting)) {
+          ok = false;
+        }
+        visiting.clear();
+        if (sd->derives.eq && !supportsEq(ft, visiting)) {
+          ok = false;
+        }
+      }
+    }
+    if (!ok) {
+      allOk = false;
+      error();
+    }
+  }
+  return allOk;
+}
+bool SemanticAnalyzer::supportsClone(TypeId t, std::unordered_set<int> &visiting) {
+  if (t == InvalidType) return true;
+  const TypeInfo &info = types.get(t);
+  switch (info.kind) {
+    case TypeKind::I32: case TypeKind::U32: case TypeKind::Isize:
+    case TypeKind::Usize: case TypeKind::Bool: case TypeKind::Unit:
+    case TypeKind::Never:
+      return true;
+    case TypeKind::Ref:
+      return !info.refMut;
+    case TypeKind::Box: case TypeKind::Vec: case TypeKind::Array:
+      return supportsClone(info.inner, visiting);
+    case TypeKind::Struct: {
+      int sid = info.structId;
+      if (visiting.count(sid)) return true;
+      const StructDecl *sd =
+          dynamic_cast<const StructDecl *>(symbols[sid].decl);
+      if (sd == nullptr || !sd->derives.clone) return false;
+      visiting.insert(sid);
+      bool ok = true;
+      auto it = structFieldTypes.find(sid);
+      if (it != structFieldTypes.end()) {
+        for (TypeId ft : it->second) {
+          if (!supportsClone(ft, visiting)) { ok = false; break; }
+        }
+      }
+      visiting.erase(sid);
+      return ok;
+    }
+  }
+  return false;
+}
+bool SemanticAnalyzer::supportsPartialEq(TypeId t, std::unordered_set<int> &visiting) {
+  if (t == InvalidType) return true;
+  const TypeInfo &info = types.get(t);
+  switch (info.kind) {
+    case TypeKind::I32: case TypeKind::U32: case TypeKind::Isize:
+    case TypeKind::Usize: case TypeKind::Bool: case TypeKind::Unit:
+      return true;
+    case TypeKind::Never:
+      return false;
+    case TypeKind::Ref:
+      return supportsPartialEq(info.inner, visiting);
+    case TypeKind::Box: case TypeKind::Vec: case TypeKind::Array:
+      return supportsPartialEq(info.inner, visiting);
+    case TypeKind::Struct: {
+      int sid = info.structId;
+      if (visiting.count(sid)) return true;
+      const StructDecl *sd =
+          dynamic_cast<const StructDecl *>(symbols[sid].decl);
+      if (sd == nullptr || !sd->derives.partialEq) return false;
+      visiting.insert(sid);
+      bool ok = true;
+      auto it = structFieldTypes.find(sid);
+      if (it != structFieldTypes.end()) {
+        for (TypeId ft : it->second) {
+          if (!supportsPartialEq(ft, visiting)) { ok = false; break; }
+        }
+      }
+      visiting.erase(sid);
+      return ok;
+    }
+  }
+  return false;
+}
+bool SemanticAnalyzer::supportsEq(TypeId t, std::unordered_set<int> &visiting) {
+  if (t == InvalidType) return true;
+  const TypeInfo &info = types.get(t);
+  switch (info.kind) {
+    case TypeKind::I32: case TypeKind::U32: case TypeKind::Isize:
+    case TypeKind::Usize: case TypeKind::Bool: case TypeKind::Unit:
+      return true;
+    case TypeKind::Ref:
+      return supportsEq(info.inner, visiting);
+    case TypeKind::Box: case TypeKind::Vec: case TypeKind::Array:
+      return supportsEq(info.inner, visiting);
+    case TypeKind::Struct: {
+      int sid = info.structId;
+      if (visiting.count(sid)) return true;
+      const StructDecl *sd =
+          dynamic_cast<const StructDecl *>(symbols[sid].decl);
+      if (sd == nullptr || !sd->derives.eq || !sd->derives.partialEq) {
+        return false;
+      }
+      visiting.insert(sid);
+      bool ok = true;
+      auto it = structFieldTypes.find(sid);
+      if (it != structFieldTypes.end()) {
+        for (TypeId ft : it->second) {
+          if (!supportsEq(ft, visiting)) { ok = false; break; }
+        }
+      }
+      visiting.erase(sid);
+      return ok;
+    }
+    default:
+      return false;
+  }
+}
+int SemanticAnalyzer::getDerivedClone(int structId) {
+  auto it = derivedCloneSymbols.find(structId);
+  if (it != derivedCloneSymbols.end()) {
+    return it->second;
+  }
+  int id = addSymbol("clone", SymbolKind::AssocFn, SourceSpan{}, nullptr);
+  symbols[id].owner = structId;
+  TypeId st = types.intern(
+      TypeInfo{TypeKind::Struct, InvalidType, false, 0, structId});
+  TypeId rt = types.intern(TypeInfo{TypeKind::Ref, st, false});
+  fnReceiverTypes[id] = rt;
+  fnParamTypes[id] = {rt};
+  fnReturnTypes[id] = st;
+  derivedCloneSymbols[structId] = id;
+  return id;
+}
+
+
 bool SemanticAnalyzer::hasSelfParam(const FnDecl &fn) {
   for (auto &param : fn.params) {
     if (param.kind == ParamKind::Self) {
@@ -98,7 +494,9 @@ void SemanticAnalyzer::collectCrate(const Crate &crate) {
         continue;
       }
       std::string name = fn->name;
-      valueTable[name] = addSymbol(name, SymbolKind::Fn, fn->span, fn);
+      int id = addSymbol(name, SymbolKind::Fn, fn->span, fn);
+      valueTable[name] = id;
+      fnSymbols[fn] = id;
     } else if (auto *sd = dynamic_cast<StructDecl *>(item.get())) {
       std::string name = sd->name;
       if (typeTable.find(name) != typeTable.end() || name == "i32") {
@@ -124,7 +522,7 @@ void SemanticAnalyzer::collectCrate(const Crate &crate) {
     } else if (auto *impl = dynamic_cast<ImplDecl *>(item.get())) {
       auto *path = dynamic_cast<const PathType *>(impl->target.get());
       if (path == nullptr || path->segments.empty() ||
-          path->segments[0].kind != PathSegmentKind::Ident) {
+          path->segments[0].kind != PathSegmentKind::Ident || path->segments.size() != 1 || !path->segments[0].genericArgs.empty()) {
         error();
         continue;
       }
@@ -146,6 +544,7 @@ void SemanticAnalyzer::collectCrate(const Crate &crate) {
           }
           int id = addSymbol(fn->name, SymbolKind::AssocFn, fn->span, fn);
           symbols[id].owner = currentStruct;
+          fnSymbols[fn] = id;
           assocTable[currentStruct][fn->name] = id;
         } else if (auto *cd = dynamic_cast<ConstDecl *>(member.get())) {
           if (assocTable[currentStruct].find(cd->name) !=
@@ -238,28 +637,37 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
     return InvalidSymbol;
   } else if (path.segments.size() == 1) {
     auto &seg = path.segments[0];
+    if (!seg.genericArgs.empty()) {
+      error();
+      return InvalidSymbol;
+    }
     if (seg.kind == PathSegmentKind::Ident) {
       int id = lookupValue(seg.name);
       if (id != InvalidSymbol) {
         bindings[&path] = id;
         return id;
-      } else {
-        error();
-        return InvalidSymbol;
       }
+      error();
+      return InvalidSymbol;
     } else if (seg.kind == PathSegmentKind::SelfValue) {
-      if (inReceiverMethod) {
-        return InvalidSymbol;
-      } else {
+      int id = lookupValue("self");
+      if (id == InvalidSymbol) {
         error();
         return InvalidSymbol;
       }
+      bindings[&path] = id;
+      return id;
     } else if (seg.kind == PathSegmentKind::SelfType) {
       error();
       return InvalidSymbol;
     }
   } else {
+    if (path.segments.size() != 2) {
+      error();
+      return InvalidSymbol;
+    }
     auto &first = path.segments[0];
+    auto &second = path.segments[1];
     int structId = InvalidSymbol;
     if (first.kind == PathSegmentKind::Ident) {
       auto it = typeTable.find(first.name);
@@ -269,10 +677,19 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
       }
       structId = it->second;
       if (symbols[structId].kind == SymbolKind::BuiltinType) {
-        if (path.segments.size() == 2 && (path.segments[1].name == "new" ||
-                                          path.segments[1].name == "clone")) {
+        if (first.name == "Box" || first.name == "Vec") {
+          if (first.genericArgs.size() != 1 || !second.genericArgs.empty()) {
+            error();
+            return InvalidSymbol;
+          } else if (second.name == "new" || second.name == "clone") {
+            return InvalidSymbol;
+          }
+          error();
           return InvalidSymbol;
         }
+        error();
+        return InvalidSymbol;
+      } else if (!first.genericArgs.empty() || !second.genericArgs.empty()) {
         error();
         return InvalidSymbol;
       }
@@ -281,25 +698,33 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
         error();
         return InvalidSymbol;
       }
+      if (!first.genericArgs.empty() || !second.genericArgs.empty()) {
+        error();
+        return InvalidSymbol;
+      }
       structId = currentStruct;
     } else if (first.kind == PathSegmentKind::SelfValue) {
       error();
       return InvalidSymbol;
     }
-    std::string name = path.segments[1].name;
-    auto tableIt = assocTable.find(structId);
-    if (tableIt == assocTable.end()) {
-      error();
-      return InvalidSymbol;
+    auto tableit = assocTable.find(structId);
+    if (tableit != assocTable.end()) {
+      auto it = tableit->second.find(second.name);
+      if (it != tableit->second.end()) {
+        bindings[&path] = it->second;
+        return it->second;
+      }
     }
-    auto it = tableIt->second.find(name);
-    if (it == tableIt->second.end()) {
-      error();
-      return InvalidSymbol;
+    if (second.name == "clone") {
+      const StructDecl *sd = dynamic_cast<const StructDecl *>(symbols[structId].decl);
+      if (sd != nullptr && sd->derives.clone) {
+        int id = getDerivedClone(structId);
+        bindings[&path] = id;
+        return id;
+      }
     }
-    int id = it->second;
-    bindings[&path] = id;
-    return id;
+    error();
+    return InvalidSymbol;
   }
   return InvalidSymbol;
 }
@@ -368,6 +793,12 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
   }
   inReceiverMethod = hasSelfParam(fn);
   pushScope();
+  int symbolId = InvalidSymbol;
+  auto it = fnSymbols.find(&fn);
+  if (it != fnSymbols.end()) {
+    symbolId = it->second;
+  }
+  bindSelf(fn, symbolId);
   std::map<std::string, bool> tmp;
   for (auto &param : fn.params) {
     if (param.kind == ParamKind::Value) {
@@ -429,6 +860,7 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
       currentStruct = tmp_id;
     }
   }
+  resolveSignatures(crate);
   for (const auto &item : crate.items) {
     if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
       resolveFunction(*fn, false);
@@ -736,7 +1168,7 @@ TypeId SemanticAnalyzer::resolveTypeId(const TypeSyntax &type, bool &ok) {
     return types.intern(
         TypeInfo{TypeKind::Array, elem, false, (uint32_t)len.value});
   } else if (auto path = dynamic_cast<const PathType *>(&type)) {
-    if (path->segments.empty()) {
+    if (path->segments.size() != 1) {
       error();
       ok = false;
       return InvalidType;
@@ -744,6 +1176,10 @@ TypeId SemanticAnalyzer::resolveTypeId(const TypeSyntax &type, bool &ok) {
     const auto &first = path->segments[0];
     if (first.kind == PathSegmentKind::SelfType) {
       if (currentStruct == InvalidSymbol) {
+        error();
+        ok = false;
+        return InvalidType;
+      } else if (!first.genericArgs.empty()) {
         error();
         ok = false;
         return InvalidType;
@@ -757,6 +1193,12 @@ TypeId SemanticAnalyzer::resolveTypeId(const TypeSyntax &type, bool &ok) {
       return InvalidType;
     }
     std::string name = first.name;
+    bool flag = (name == "i32" || name == "u32" || name == "isize" || name == "usize" || name == "bool");
+    if (flag && !first.genericArgs.empty()) {
+      error();
+      ok = false;
+      return InvalidType;
+    }
     if (name == "i32") {
       return types.intern(TypeInfo{TypeKind::I32});
     } else if (name == "u32") {
@@ -783,6 +1225,11 @@ TypeId SemanticAnalyzer::resolveTypeId(const TypeSyntax &type, bool &ok) {
     auto it = typeTable.find(name);
     if (it == typeTable.end() ||
         symbols[it->second].kind != SymbolKind::Struct) {
+      error();
+      ok = false;
+      return InvalidType;
+    }
+    if (!first.genericArgs.empty()) {
       error();
       ok = false;
       return InvalidType;
@@ -980,7 +1427,7 @@ bool SemanticAnalyzer::isCopyType(TypeId id) {
   if (isIntType(id) || isBoolType(id) || isUnit(id)) {
     return true;
   } else if (kind == TypeKind::Ref) {
-    return true;
+    return !info.refMut;
   } else if (kind == TypeKind::Box || kind == TypeKind::Vec) {
     return false;
   } else if (kind == TypeKind::Never) {
@@ -1332,6 +1779,14 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
       res = types.intern(TypeInfo{TypeKind::Bool});
     } else if (op == BinaryOp::Eq || op == BinaryOp::Ne) {
+      if (l_id != InvalidType && r_id != InvalidType) {
+        if (l_id != r_id) {
+          error();
+        } else {
+          std::unordered_set<int> visiting;
+          if (!supportsPartialEq(l_id, visiting)) error();
+        }
+      }
       res = types.intern(TypeInfo{TypeKind::Bool});
     } else if (op == BinaryOp::LAnd || op == BinaryOp::LOr) {
       if (l_id != InvalidType && !isBoolType(l_id)) {
@@ -1481,6 +1936,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                 TypeId vecType = types.intern(TypeInfo{TypeKind::Vec, inner});
                 TypeId refInner =
                     types.intern(TypeInfo{TypeKind::Ref, vecType, false});
+                std::unordered_set<int> visiting;
+                if (!supportsClone(inner, visiting)) error();
                 if (call->args.size() != 1) {
                   error();
                 } else {
@@ -1490,6 +1947,21 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                   }
                 }
                 res = vecType;
+              } else if (s0.name == "Box" && s1.name == "clone") {
+                TypeId boxType = types.intern(TypeInfo{TypeKind::Box, inner});
+                TypeId refInner =
+                    types.intern(TypeInfo{TypeKind::Ref, boxType, false});
+                std::unordered_set<int> visiting;
+                if (!supportsClone(inner, visiting)) error();
+                if (call->args.size() != 1) {
+                  error();
+                } else {
+                  TypeId a = infer(*call->args[0], refInner);
+                  if (a != InvalidType && a != refInner) {
+                    error();
+                  }
+                }
+                res = boxType;
               } else {
                 builtin = false;
               }
@@ -1498,8 +1970,16 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         }
       }
       if (!builtin) {
-        for (auto &arg : call->args) {
-          infer(*arg, InvalidType);
+        auto it = fnParamTypes.find(id);
+        if (id != InvalidSymbol && it != fnParamTypes.end()) {
+          checkCallArgs(id, call->args);
+          auto ret = fnReturnTypes.find(id);
+          res = (ret != fnReturnTypes.end()) ? ret->second : InvalidType;
+        } else {
+          for (auto &arg : call->args) {
+            infer(*arg, InvalidType);
+          }
+          res = InvalidType;
         }
       }
     } else {
@@ -1581,52 +2061,92 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
     }
   } else if (auto method = dynamic_cast<const MethodCallExpr *>(&expr)) {
-    TypeId receiver_type =
-        autoDerefContainers(infer(*method->receiver, InvalidType));
-    TypeKind receiver_kind =
-        (receiver_type == InvalidType ? TypeKind::Unit
-                                      : types.get(receiver_type).kind);
-    TypeId elem_type = InvalidType;
-    if (receiver_kind == TypeKind::Array || receiver_kind == TypeKind::Vec) {
-      elem_type = types.get(receiver_type).inner;
+    TypeId receiver = infer(*method->receiver, InvalidType);
+    bool bad = false;
+    if (!method->genericArgs.empty()) {
+      error();
+      bad = true;
     }
-    TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
-    if (method->method == "len" &&
-        (receiver_kind == TypeKind::Array || receiver_kind == TypeKind::Vec)) {
-      if (!method->args.empty()) {
-        error();
-      }
-      res = usizeT;
-    } else if (method->method == "is_empty" && receiver_kind == TypeKind::Vec) {
-      if (!method->args.empty()) {
-        error();
-      }
-      res = types.intern(TypeInfo{TypeKind::Bool});
-    } else if (method->method == "push" && receiver_kind == TypeKind::Vec) {
-      if (method->args.size() != 1) {
-        error();
-      } else {
-        TypeId a = infer(*method->args[0], elem_type);
-        if (a != InvalidType && elem_type != InvalidType && a != elem_type) {
-          error();
-        }
-      }
-      res = unitType();
-    } else if (method->method == "remove" && receiver_kind == TypeKind::Vec) {
-      if (method->args.size() != 1) {
-        error();
-      } else {
-        TypeId a = infer(*method->args[0], usizeT);
-        if (a != InvalidType && types.get(a).kind != TypeKind::Usize) {
-          error();
-        }
-      }
-      res = elem_type;
-    } else {
+    if (receiver == InvalidType) {
       for (auto &arg : method->args) {
         infer(*arg, InvalidType);
       }
       res = InvalidType;
+    } else if (bad) {
+      for (auto &arg : method->args) {
+        infer(*arg, InvalidType);
+      }
+      res = InvalidType;
+    } else {
+      TypeId selectedReceiver = InvalidType;
+      int id = findUserMethod(receiver, method->method, selectedReceiver);
+      if (id != InvalidSymbol) {
+        const TypeInfo &sel = types.get(selectedReceiver);
+        if (sel.kind == TypeKind::Ref && sel.refMut && !isMutableAccess(*method->receiver)) {
+          error();
+        }
+        checkCallArgs(id, method->args, 1);
+        auto it = fnReturnTypes.find(id);
+        res = (it != fnReturnTypes.end()) ? it->second : InvalidType;
+      } else {
+        TypeId cloneType = InvalidType;
+        if (method->method == "clone" &&
+            findBuiltinClone(receiver, cloneType)) {
+          if (!method->args.empty()) {
+            error();
+            for (auto &arg : method->args) {
+              infer(*arg, InvalidType);
+            }
+          }
+          res = cloneType;
+        } else {
+          TypeId base = autoDerefContainers(receiver);
+          TypeKind kind = types.get(base).kind;
+          TypeId elem = InvalidType;
+          if (kind == TypeKind::Array || kind == TypeKind::Vec || kind == TypeKind::Box) {
+            elem = types.get(base).inner;
+          }
+          TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
+          bool matched = false;
+          if (method->method == "len" &&
+              (kind == TypeKind::Array || kind == TypeKind::Vec)) {
+            if (!method->args.empty()) {
+              error();
+            }
+            res = usizeT;
+            matched = true;
+          } else if (method->method == "is_empty" && kind == TypeKind::Vec) {
+            if (!method->args.empty()) {
+              error();
+            }
+            res = types.intern(TypeInfo{TypeKind::Bool});
+            matched = true;
+          } else if (method->method == "push" && kind == TypeKind::Vec) {
+            if (method->args.size() != 1) {
+              error();
+            } else {
+              TypeId a = infer(*method->args[0], elem);
+              if (a != InvalidType && elem != InvalidType && a != elem) error();
+            }
+            res = unitType();
+            matched = true;
+          } else if (method->method == "remove" && kind == TypeKind::Vec) {
+            if (method->args.size() != 1) {
+              error();
+            } else {
+              TypeId a = infer(*method->args[0], usizeT);
+              if (a != InvalidType && types.get(a).kind != TypeKind::Usize) error();
+            }
+            res = elem;
+            matched = true;
+          }
+          if (!matched) {
+            for (auto &arg : method->args) infer(*arg, InvalidType);
+            error();
+            res = InvalidType;
+          }
+        }
+      }
     }
   } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
     int structId = InvalidSymbol;
