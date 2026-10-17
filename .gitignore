@@ -17,6 +17,6 @@ dev/
 *.local.*
 /.cache/
 quiz*
-prompt.md
+prompt*.md
 
 config.reference.mk
