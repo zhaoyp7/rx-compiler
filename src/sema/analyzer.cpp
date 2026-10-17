@@ -1104,7 +1104,14 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     }
     std::vector<TypeId> breaktypes = loops.back().breakTypes;
     loops.pop_back();
-    if (breaktypes.empty()) {
+    bool allNever = !breaktypes.empty();
+    for (auto type : breaktypes) {
+      if (!isNever(type)) {
+        allNever = false;
+        break;
+      }
+    }
+    if (breaktypes.empty() || allNever) {
       res = neverType();
     } else if (expected != InvalidType) {
       for (auto type : breaktypes) {
