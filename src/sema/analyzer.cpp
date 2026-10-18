@@ -682,7 +682,10 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
           if (first.genericArgs.size() != 1 || !second.genericArgs.empty()) {
             error();
             return InvalidSymbol;
-          } else if (second.name == "new" || second.name == "clone") {
+          } else if (second.name == "new" || second.name == "clone" ||
+                     (first.name == "Vec" &&
+                      (second.name == "len" || second.name == "is_empty" ||
+                       second.name == "push" || second.name == "remove"))) {
             return InvalidSymbol;
           }
           error();
@@ -2110,6 +2113,10 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
           } else {
             bool ok = false;
             TypeId inner = resolveTypeId(*s0.genericArgs[0], ok);
+            TypeId vecType = types.intern(TypeInfo{TypeKind::Vec, inner});
+            TypeId refVec = types.intern(TypeInfo{TypeKind::Ref, vecType, false});
+            TypeId mutVec = types.intern(TypeInfo{TypeKind::Ref, vecType, true});
+            TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
             if (ok) {
               builtin = true;
               if (s0.name == "Box" && s1.name == "new") {
@@ -2158,6 +2165,64 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                   }
                 }
                 res = boxType;
+              } else if (s0.name == "Vec" && s1.name == "len") {
+                if (call->args.size() != 1) {
+                  error();
+                  for (auto &arg : call->args) infer(*arg, InvalidType);
+                } else {
+                  TypeId a = infer(*call->args[0], refVec);
+                  if (a != InvalidType && !checkCoercion(*call->args[0], a, refVec)) {
+                    error();
+                  }
+                }
+                res = usizeT;
+              } else if (s0.name == "Vec" && s1.name == "is_empty") {
+                if (call->args.size() != 1) {
+                  error();
+                  for (auto &arg : call->args) {
+                    infer(*arg, InvalidType);
+                  }
+                } else {
+                  TypeId a = infer(*call->args[0], refVec);
+                  if (a != InvalidType && !checkCoercion(*call->args[0], a, refVec)) {
+                    error();
+                  }
+                }
+                res = types.intern(TypeInfo{TypeKind::Bool});
+              } else if (s0.name == "Vec" && s1.name == "push") {
+                if (call->args.size() != 2) {
+                  error();
+                  for (auto &arg : call->args) {
+                    infer(*arg, InvalidType);
+                  }
+                } else {
+                  TypeId a0 = infer(*call->args[0], mutVec);
+                  if (a0 != InvalidType && !checkCoercion(*call->args[0], a0, mutVec)) {
+                    error();
+                  }
+                  TypeId a1 = infer(*call->args[1], inner);
+                  if (a1 != InvalidType && inner != InvalidType && !checkCoercion(*call->args[1], a1, inner)) {
+                    error();
+                  }
+                }
+                res = unitType();
+              } else if (s0.name == "Vec" && s1.name == "remove") {
+                if (call->args.size() != 2) {
+                  error();
+                  for (auto &arg : call->args) {
+                    infer(*arg, InvalidType);
+                  }
+                } else {
+                  TypeId a0 = infer(*call->args[0], mutVec);
+                  if (a0 != InvalidType && !checkCoercion(*call->args[0], a0, mutVec)) {
+                    error();
+                  }
+                  TypeId a1 = infer(*call->args[1], usizeT);
+                  if (a1 != InvalidType && !checkCoercion(*call->args[1], a1, usizeT)) {
+                    error();
+                  }
+                }
+                res = inner;
               } else {
                 builtin = false;
               }
