@@ -1,7 +1,7 @@
 # Rx 编译器设计文档
 
 > 阶段一（AST + 语义）设计记录。本文件随阶段推进更新。
-> 当前进度：P1（AST 定义）、P2（AST 构建）完成；下一步 P3（符号与名字解析）。
+> 当前进度：P12（收尾）；official semantic 236/236，custom semantic 90/90。
 
 ## 1. AST 总体设计
 
@@ -298,3 +298,340 @@ Crate
 
 - **`ast.h` 的字段**：定义“必须产出什么”；
 - **`dump.cpp` 的打印内容**：定义“每个节点有哪些必要信息”，反向要求 builder 填对字段。
+
+## 8. 语义分析总体架构
+
+### 8.1 数据流
+
+```
+.rx
+ │ ANTLR RxLexer / RxParser
+ ▼
+ParseTree
+ │ ASTBuilder
+ ▼
+Crate (AST)
+ │ SemanticAnalyzer::run
+ ▼
+符号表 / 作用域 / TypeId / 布局 / 常量 / 表达式类型旁表
+ │ 后续阶段
+ ▼
+LLVM IR → RV32IM
+```
+
+语义阶段不修改 AST，所有语义信息放在旁表：
+
+- `bindings`：`PathExpr → symbol id`
+- `exprTypes`：`Expr → TypeId`
+- `structFieldTypes` / `structFieldMap`
+- `structLayouts` / `layoutState`
+- `constValues` / `constState`
+- `fnParamTypes` / `fnReturnTypes` / `fnReceiverTypes`
+
+### 8.2 核心数据模型
+
+- `SymbolKind`：`Struct`、`Fn`、`Const`、`BuiltinFn`、`BuiltinType`、
+  `Local`、`Param`、`AssocConst`、`AssocFn`
+- `TypeKind`：`I32`、`U32`、`Isize`、`Usize`、`Bool`、`Unit`、`Never`、
+  `Ref`、`Array`、`Struct`、`Box`、`Vec`
+- `TypeArena` 对 `TypeInfo` 做 interning；`TypeId` 判等即类型判等
+- `StructLayout` 保存字段偏移、总大小和对齐
+- 函数签名表以 symbol id 为键：
+  - `fnParamTypes` 包含 receiver（方法第一项是 `S` / `&S` / `&mut S`）
+  - `fnReceiverTypes` 对关联函数是 `InvalidType`
+  - `fnSymbols` 把 `FnDecl*` 映射到 symbol id
+  - `derivedCloneSymbols` 保存 derive Clone 的合成方法 id
+
+### 8.3 `run()` 顺序
+
+```
+clear state
+registerBuiltins()
+registerBuiltinSignatures()
+collectCrate()            顶层 item + impl 关联项 + 定义处错误
+resolveCrate()
+  Pass A: struct 字段类型
+  Pass A2: 所有函数/方法签名预扫描
+  Pass B: 函数体、常量、impl 成员
+checkLayouts()            所有 struct 的 size/align/offset + 递归布局
+checkDerives()            Copy/Clone/PartialEq/Eq 能力与重复 derive
+checkEntry()              main 签名
+```
+
+两遍扫描保证：
+
+- 前向调用和相互递归可见；
+- 方法 receiver 类型在函数体检查前可用；
+- `Self` 在方法签名和体内解析到正确 struct；
+- 结构体字段类型在布局和 derive 检查前完整。
+
+### 8.4 名字、常量、类型
+
+- 类型、值、字段三个命名空间分离；函数与常量共享值命名空间
+- 一个 struct 的所有 impl 共享关联值命名空间
+- 局部 `let` 初始化器在新绑定引入前求值，支持遮蔽
+- 保护名：`i32`、`get_i32/print_i32/println_i32` 等按命名空间检查
+- 常量求值只支持 `ConstInt/ConstBool/ConstPath/ConstNeg`；
+  memo + visiting 检测直接/间接/关联常量环
+- `resolveTypeId` 支持 struct、`Self`、`Box<T>`、`Vec<T>`、数组、引用；
+  函数/struct/原始类型不接受类型实参，Box/Vec 恰好一个类型实参
+- `resolveType` 仍用于 const 类型检查，路径解析与 `resolveTypeId` 共用大部分规则
+
+### 8.5 表达式与控制流
+
+- `infer(expr, expected)` 为每个表达式写 `exprTypes`
+- expected 传播只穿过规范列出的位置：let 注解、赋值 RHS、调用实参、
+  return/函数尾、struct 字段、数组 expected、if/loop 结果
+- 不穿透一元/二元/借用运算
+- `resolveBlock` 返回 block 类型：tail / unit / never
+- 不可达代码仍做名字、类型、place 有效性检查；place 可变性违规按 UB 处理
+- if 无 else 要求 unit；有 else 无 expected 时用 LUB
+- loop break 值支持 expected 或 LUB；while 恒 unit
+- `Never` 与任意返回类型兼容
+
+### 8.6 结构体、数组、容器
+
+- struct 字面量按 `structId` 查字段表，检查缺失/重复/未知/类型；
+  结果类型是名义 struct 类型
+- 字段访问反复解引用 `&/&mut/Box` 到 struct；未知字段报错
+- 数组字面量 list 形式按 expected 或 LUB；repeat 形式 N>1 要求元素 Copy
+- 索引基自动解引用 `&/&mut/Box` 到 Array/Vec；下标必须 usize
+- Vec 索引隐式借用 Vec：赋值、复合赋值、可变重借、`&mut self`
+  接收者都要求索引处对 Vec 的可变访问
+- Box 解引用和固定数组索引不插入这种 Vec 借用
+- 内建方法：
+  - `Vec::<T>::new/len/is_empty/push/remove/clone`
+  - `Box::<T>::new/clone`
+  - 限定调用和点调用共享签名规则
+- 容器 clone 要求元素 Clone；容器相等要求元素 PartialEq
+
+### 8.7 方法与 derive
+
+方法查找候选序列：
+
+```
+从接收者类型 t 开始：
+  t, &t, &mut t
+  若 t 是 &U / &mut U / Box<U>，继续以 U 为 t
+  Vec 不产生解引用步骤
+```
+
+- 每个候选只匹配 receiver 类型完全相等的方法
+- 参数个数、参数类型、接收者可变性不参与候选筛选
+- 选中后再检查 `&mut self` 接收者是否可变访问
+- 关联函数没有 receiver，不参与点调用
+- 显式 `Type::method(receiver, ...)` 不做自动引用，receiver 作为普通第一个实参
+- 派生 Clone 作为合成方法参与限定和点查找；与固有 clone 冲突是 UB，
+  实现固定固有优先
+
+derive 规则：
+
+- Copy：字段全 Copy，且必须显式 Clone
+- Clone：字段全 Clone；`&mut T` 不是 Clone
+- PartialEq：字段全 PartialEq；操作数必须同源类型
+- Eq：字段全 Eq，且必须显式 PartialEq
+- 递归 struct 用 visiting 集合终止；`Vec<Self>` 可 Clone/PartialEq/Eq，但不能 Copy
+- 重复 derive 在 builder 中记录 duplicate 标志，`checkDerives` 报错
+
+### 8.8 引用、place 可变性、coercion、LUB
+
+三个概念分开：
+
+- `isPlace`：表达式是否表示存储
+- `isMutablePlace`：能否直接写这个 place 的槽位
+- `isMutableAccess`：能否以可变方式使用这个 place，包括使用其中存储的 `&mut`
+
+辅助函数：
+
+- `pathAllowsStoredMutRef`：到达一个 `&mut` 的路径是否被共享引用或
+  Vec 索引阻断
+- `hasMutableContainerAccess`：`Box<&mut Vec/Array>` 等容器基址是否
+  能提供可变访问
+
+关键区别：
+
+- 不可变局部变量、struct、固定数组、拥有型 Box 中的 `&mut T`
+  仍可使用其中的可变引用
+- 路径穿过共享引用则阻断
+- Vec 索引即使元素是 `&mut T`，也要求 Vec 本身可变
+- Box<Vec<T>> 不可变所有者不能在 Vec 索引处提供可变访问
+
+coercion：
+
+- `&mut T → &T`
+- 沿 `&/&mut/Box` 解引用到目标 pointee
+- 可变目标要求外层 `&mut` 且路径无共享引用
+- 不隐式借用 owned Box，不穿透 Vec
+- `checkCoercion` 额外处理 `&mut` 重借：源表达式是 place 时检查
+  `pathAllowsStoredMutRef`
+
+引用 LUB：
+
+- `&mut T` 与 `&T` 合并为 `&T`，两种顺序都支持
+- 内层引用可变性不一致时失败
+- `joinTypes` 用 `isCoercible` 实现，不再只接受完全相同类型
+
+引用运算符：
+
+- 算术/位运算最多一层共享引用
+- 排序要求引用深度/可变性匹配；允许左 `&T`、右 `&mut T`
+- 相等要求完全同源类型并检查 PartialEq
+
+### 8.9 I/O 与入口
+
+- `get_i32() -> i32`
+- `print_i32(i32) -> ()`
+- `println_i32(i32) -> ()`
+- 内建 I/O 签名进入同一套 `checkCallArgs` 检查
+- main 必须恰好一个、无参、无泛型、返回 unit
+
+## 9. 明确不做的 UB 项
+
+以下情况规范列为 UB 或测试保证不会出现，编译器不实现额外诊断：
+
+- 所有权、借用检查、移动后使用、双重移动
+- lifetime 有效性、引用有效性
+- `use` 导入解析、别名、冲突
+- 零大小数据（空 struct、零长数组的可观察使用）
+- 函数作为值
+- 省略 `Box::new` / `Vec::new` 的显式类型实参
+- 跨源类型 `==` / `!=`
+- 不可达代码中的 place 可变性违规
+- 方法查找中同一候选的多个方法歧义
+
+仍然必须诊断：
+
+- 名字解析、遮蔽、重复定义、保护名
+- 类型、expected、coercion、LUB、泛型实参数量
+- 赋值/借用/`&mut self` 的 place 可变性
+- 递归布局、derive 能力、main 签名、I/O 签名
+- 不可达代码中的名字/类型/place 有效性
+
+## 10. 测试与验收记录
+
+### 10.1 阶段验收
+
+| 阶段 | 验收目录/内容 | 结果 |
+|---|---|---|
+| P3 | entry、names-and-shadowing、namespace-errors、protected-names、constant-errors | 通过 |
+| P4 | constants-and-paths、constant-errors | 通过 |
+| P5 | recursive-layout | 6/6 |
+| P6 | integer-arithmetic、shifts、casts-and-literals、boolean-and-short-circuit、compound-assignment | 通过 |
+| P7 | blocks-if-and-never、loops-and-jumps、unreachable-checks | 通过 |
+| P8 | structs-and-fields、arrays、expected-types、evaluation-order-and-temporaries | 通过 |
+| P9 | methods-and-self、builtin-io、trait-dispatch、invalid-impls、calls | 31/31 |
+| P10 | vec-index-mutability、box-and-moves、references-and-mutability、reference-coercions、reference-lub、scalar-reference-operators | 通过 |
+| P11 | vec-operations、aggregate-arguments、recursive-traits、comprehensive-owned-tree | 通过 |
+| P12 | `official:semantic` 全量 | 236/236 |
+| P12 | `tests/custom` | 90/90 |
+
+### 10.2 custom 测试目录
+
+```
+tests/custom/
+├── names-and-entry/                 11
+├── constants-and-layout/            11
+├── expressions-and-control/         11
+├── methods-and-derive/              18
+├── references-and-mutability/       19
+├── containers/                      17
+└── io/                               3
+```
+
+运行：
+
+```bash
+make test FILTER=custom STAGE=semantic
+make test FILTER=custom:containers STAGE=semantic
+```
+
+### 10.3 测试目录到规则的映射
+
+| 目录 | 主要规则 |
+|---|---|
+| entry | main 签名、空参数、无泛型、unit 返回 |
+| names-and-shadowing | 作用域、初始化器顺序、遮蔽 |
+| namespace-errors | 类型/值/关联命名空间、重复定义 |
+| protected-names | 内建保护名 |
+| constants-and-paths | 常量求值、路径、环检测 |
+| integer-arithmetic/shifts/casts | 运算符、字面量、cast |
+| boolean-and-short-circuit | bool 运算与短路 |
+| compound-assignment | 复合赋值目标与 RHS |
+| blocks-if-and-never | 块类型、if、Never |
+| loops-and-jumps | loop/while/break/continue |
+| unreachable-checks | 不可达代码检查 |
+| structs-and-fields | 结构体字面量、字段访问、布局 |
+| arrays | 数组字面量、repeat、索引 |
+| expected-types | expected 传播 |
+| methods-and-self | 方法查找、receiver、关联调用 |
+| builtin-io | I/O 签名 |
+| trait-dispatch | derive、clone、eq、引用相等 |
+| invalid-impls | impl 目标、泛型实参 |
+| vec-index-mutability | Vec 索引可变访问传播 |
+| box-and-moves | Box 访问与移动 |
+| references-and-mutability | place 可变性、共享/可变引用 |
+| reference-coercions | 引用 coercion |
+| reference-lub | 引用 LUB |
+| scalar-reference-operators | 引用算术/排序/相等 |
+| vec-operations | Vec 方法全集 |
+| aggregate-arguments | 聚合传参、返回、引用字段 |
+| recursive-traits | 递归 derive |
+| comprehensive-* | 综合一致性 |
+
+### 10.4 目录到实现的索引
+
+| 测试目录/主题 | 主要实现位置 |
+|---|---|
+| entry | `checkEntry`、`resolveFunction` |
+| names-and-shadowing / namespace-errors | `collectCrate`、`resolvePath`、`lookupValue`、`Scope` |
+| protected-names | `collectCrate`、`registerBuiltins` |
+| constants-and-paths / constant-errors | `calcConstValue`、`calcConstSymbol`、`resolveConstPath`、`resolveTypeId` 的数组长度分支 |
+| integer-arithmetic / shifts / casts / boolean | `infer` 的 `BinaryExpr`、`UnaryExpr`、`CastExpr` 分支 |
+| blocks-if-and-never / loops-and-jumps | `resolveBlock`、`resolveStmt`、`infer` 的 if/loop/while/break/return 分支 |
+| unreachable-checks | `resolveBlock` 的 `diverged`、`resolveStmt` 的不可达路径 |
+| structs-and-fields | `resolveTypeId`、`layoutStruct`、`infer` 的 `StructLit`/`FieldAccessExpr` 分支 |
+| arrays | `infer` 的 `ArrayLit`/`ArrayRepeat`/`IndexExpr` 分支、`isCopyType` |
+| expected-types | `infer` 的 `expected` 参数与各 coercion site |
+| methods-and-self | `resolveSignatures`、`resolveSignature`、`findUserMethod`、`resolvePath`、`infer` 的 `MethodCallExpr` 分支 |
+| builtin-io / calls | `registerBuiltinSignatures`、`checkCallArgs`、`infer` 的 `CallExpr` 分支 |
+| trait-dispatch / copy-clone | `checkDerives`、`supportsClone`、`supportsPartialEq`、`supportsEq`、`isCopyType`、`getDerivedClone`、`infer` 的 Eq/Ne 分支 |
+| invalid-impls / 泛型实参 | `collectCrate`、`resolveTypeId`、`resolvePath`、`infer` 的 MethodCall 泛型实参检查 |
+| references-and-mutability | `isPlace`、`isMutablePlace`、`isMutableAccess`、`pathAllowsStoredMutRef`、`hasMutableContainerAccess` |
+| reference-coercions / reference-lub | `isCoercible`、`checkCoercion`、`joinTypes`、各 coercion site |
+| scalar-reference-operators | `infer` 的算术/排序/相等分支、`checkOrderingOperands` |
+| vec-index-mutability / vec-operations | `isMutableAccess` 的 Index 分支、`hasMutableContainerAccess`、`infer` 的 Vec 内建方法分支 |
+| aggregate-arguments-and-reference-fields | `resolveFunction` 参数绑定、`checkCallArgs`、`infer` 的聚合表达式 |
+| recursive-traits | `supportsClone/PartialEq/Eq` 的 visiting、`checkDerives` |
+| comprehensive-* | 以上规则组合；无单独特判 |
+
+## 11. 已知简化与 Review 说明
+
+- `SemanticAnalyzer::error()` 目前只置 `failed`，不保存语义错误消息；
+  reject 用例只检查退出码。这是当前阶段的简化，后续可加诊断文本。
+- `InvalidType` 作为 wildcard：签名/类型解析失败时避免级联错误。
+  正向用例必须靠 custom 用例确认不是 wildcard 假绿。
+- `resolveType` 和 `resolveTypeId` 仍有两套路径检查；
+  后续可收敛为单一类型解析入口。
+- `resolveFunction` 仍会重新解析参数/返回类型；签名表已经可用，
+  后续可优先查表减少重复。
+- 生成 ANTLR parser 已提交到 `src/generated/`，OJ 不需要 Java。
+- OJ 构建使用 `-j2`，避免 cc1plus OOM；本地可临时加大。
+
+## 12. Review 演示命令
+
+```bash
+# AST 结构
+./build/rxc --stage ast tests/official/semantic/methods-and-self/acc-receiver-auto-borrows-and-repeated-box-reference-dereferences.rx
+
+# accept
+./build/rxc --stage semantic tests/official/semantic/comprehensive-owned-tree/acc-clone-mutate-remove-tree.rx
+echo $?   # 0
+
+# reject：不可变 Vec 中的 stored &mut
+./build/rxc --stage semantic tests/official/semantic/vec-index-mutability/rej-write-through-stored-reference.rx
+echo $?   # 1
+
+# 全量回归
+make test FILTER=official:semantic STAGE=semantic
+make test FILTER=custom STAGE=semantic
+```
