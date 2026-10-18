@@ -1,0 +1,12 @@
+use rx::core::*;
+
+struct S {
+    value: i32,
+}
+fn S() -> i32 {
+    7
+}
+fn main() {
+    let s = S { value: 1 };
+    println_i32(s.value + S());
+}

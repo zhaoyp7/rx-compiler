@@ -1,0 +1,104 @@
+[
+  {
+    "source": "acc-array-repeat-one-no-copy.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Array repeat of length one does not require Copy."
+  },
+  {
+    "source": "acc-qualified-box-clone-nested.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified Box clone recurses for nested boxes."
+  },
+  {
+    "source": "acc-qualified-box-clone.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified Box clone returns an independent Box."
+  },
+  {
+    "source": "acc-qualified-vec-clone-shared.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified Vec clone accepts a shared vector reference."
+  },
+  {
+    "source": "acc-qualified-vec-methods.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified Vec methods check receiver, arguments, and return types."
+  },
+  {
+    "source": "acc-qualified-vec-nested.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified Vec methods work with nested element types."
+  },
+  {
+    "source": "acc-vec-remove-noncopy.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Vec remove returns a non-Copy element by move."
+  },
+  {
+    "source": "rej-array-index-non-usize.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Array indices must have type usize."
+  },
+  {
+    "source": "rej-box-qualified-clone-argument.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Qualified Box clone does not implicitly borrow an owned Box argument."
+  },
+  {
+    "source": "rej-box-qualified-vec-methods.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Box does not provide Vec-only qualified methods."
+  },
+  {
+    "source": "rej-qualified-vec-new-argument.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Vec new takes no value arguments."
+  },
+  {
+    "source": "rej-qualified-vec-wrong-type-argument.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Qualified Vec methods use the declared element type."
+  },
+  {
+    "source": "rej-vec-index-shared-ref-write.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A Vec reached through a shared reference cannot be indexed mutably."
+  },
+  {
+    "source": "rej-vec-qualified-arity.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Qualified Vec methods check argument counts."
+  },
+  {
+    "source": "rej-vec-qualified-index-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Qualified Vec remove requires a usize index."
+  },
+  {
+    "source": "rej-vec-qualified-value-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Qualified Vec push checks the element type."
+  },
+  {
+    "source": "rej-vec-qualified-wrong-receiver.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Vec push requires a mutable vector reference."
+  }
+]

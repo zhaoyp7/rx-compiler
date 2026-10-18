@@ -1,0 +1,6 @@
+use rx::core::*;
+fn f() -> i32 { 1 }
+fn main() {
+    let f = 1;
+    f();
+}

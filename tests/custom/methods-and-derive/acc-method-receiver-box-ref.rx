@@ -1,0 +1,21 @@
+use rx::core::*;
+
+struct Counter {
+    value: i32,
+}
+impl Counter {
+    fn inc(&mut self) {
+        self.value += 1;
+    }
+    fn get(&self) -> i32 {
+        self.value
+    }
+}
+fn main() {
+    let c = Counter { value: 1 };
+    let mut b = Box::<Counter>::new(c);
+    b.inc();
+    let r = &mut b;
+    r.inc();
+    println_i32(b.get());
+}

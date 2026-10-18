@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn main() {
+    let mut x = 1;
+    let p = &mut x;
+    let q = &p;
+    **q = 2;
+}

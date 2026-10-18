@@ -1,0 +1,6 @@
+use rx::core::*;
+
+fn main() {
+    let v = Vec::<i32>::new();
+    Vec::<i32>::len();
+}

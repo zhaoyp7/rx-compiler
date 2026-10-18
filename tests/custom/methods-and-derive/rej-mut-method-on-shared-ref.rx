@@ -1,0 +1,8 @@
+use rx::core::*;
+struct S { value: i32 }
+impl S { fn inc(&mut self) { self.value += 1; } }
+fn main() {
+    let mut s = S { value: 1 };
+    let r = &s;
+    r.inc();
+}

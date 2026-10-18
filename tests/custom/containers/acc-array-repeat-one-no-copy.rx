@@ -1,0 +1,10 @@
+use rx::core::*;
+
+fn main() {
+    let mut x = 1;
+    let a = [&mut x; 1];
+    *a[0] = 2;
+    let b = [Box::<i32>::new(3); 1];
+    println_i32(*b[0]);
+    println_i32(x);
+}

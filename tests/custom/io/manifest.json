@@ -1,0 +1,20 @@
+[
+  {
+    "source": "acc-get-nested-arith.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "I/O calls can be nested in arithmetic expressions."
+  },
+  {
+    "source": "rej-print-return-used-i32.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "The unit result of print_i32 cannot be used as i32."
+  },
+  {
+    "source": "rej-println-wrong-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "println_i32 requires an i32 argument."
+  }
+]

@@ -1,0 +1,4 @@
+use rx::core::*;
+#[derive(Eq)]
+struct S { x: i32 }
+fn main() {}

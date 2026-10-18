@@ -1,0 +1,17 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = 1;
+    let b = 2;
+    let arr = [&mut a, &b];
+    let r = if true { &mut a } else { &b };
+    let s = loop {
+        if true {
+            break &b;
+        }
+        break &mut a;
+    };
+    println_i32(*arr[0]);
+    println_i32(*r);
+    println_i32(*s);
+}

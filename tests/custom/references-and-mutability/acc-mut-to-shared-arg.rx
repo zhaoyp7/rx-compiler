@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn read(x: &i32) -> i32 {
+    *x
+}
+fn main() {
+    let mut x = 1;
+    let p = &mut x;
+    println_i32(read(p));
+    *p = 2;
+    println_i32(*p);
+}

@@ -1,0 +1,116 @@
+[
+  {
+    "source": "acc-array-stored-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "An immutable array preserves access through stored mutable references."
+  },
+  {
+    "source": "acc-box-box-coercion.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A shared reference to nested Boxes coerces to a shared reference to the leaf."
+  },
+  {
+    "source": "acc-box-stored-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "An immutable owned Box preserves access through a stored mutable reference."
+  },
+  {
+    "source": "acc-coercion-return-and-if.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Mutable-to-shared coercion at return and if branches."
+  },
+  {
+    "source": "acc-coercion-struct-field-and-array.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Mutable-to-shared coercion in struct fields and array elements."
+  },
+  {
+    "source": "acc-mut-to-shared-arg.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A mutable reference can be passed to a shared reference parameter."
+  },
+  {
+    "source": "acc-mutable-reborrow-binding.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A mutable reference can be reborrowed into a new mutable reference binding."
+  },
+  {
+    "source": "acc-ref-lub-loop-and-array.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Reference LUB handles arrays, if branches, and loop breaks in both orders."
+  },
+  {
+    "source": "acc-ref-ordering-asymmetry.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Ordering allows shared left and mutable right reference layers."
+  },
+  {
+    "source": "acc-ref-to-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A mutable reference to a mutable reference provides transitive mutable access."
+  },
+  {
+    "source": "acc-shared-ref-clone-nonclone.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Clone on a shared reference to a non-Clone struct returns the shared reference."
+  },
+  {
+    "source": "rej-array-direct-slot-assignment.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "An immutable array cannot assign to an element slot."
+  },
+  {
+    "source": "rej-array-element-reference-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A fixed array target rejects incompatible reference elements."
+  },
+  {
+    "source": "rej-array-repeat-stored-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Repeating a mutable reference more than once requires Copy."
+  },
+  {
+    "source": "rej-box-shared-to-mut-coercion.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A shared reference to Box cannot become a mutable reference to its contents."
+  },
+  {
+    "source": "rej-ref-ordering-asymmetry.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Ordering does not allow mutable left and shared right reference layers."
+  },
+  {
+    "source": "rej-return-shared-as-mutable.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A shared reference cannot be returned as a mutable reference."
+  },
+  {
+    "source": "rej-shared-outer-stored-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A shared outer reference blocks stored mutable-reference access."
+  },
+  {
+    "source": "rej-struct-field-coercion-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Struct field initialization checks the declared reference type."
+  }
+]

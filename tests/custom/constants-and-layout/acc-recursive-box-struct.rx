@@ -1,0 +1,6 @@
+use rx::core::*;
+
+struct Node {
+    next: Box<Node>,
+}
+fn main() {}

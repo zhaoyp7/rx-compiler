@@ -1,0 +1,13 @@
+use rx::core::*;
+
+struct Holder<'a> {
+    value: &'a i32,
+}
+fn main() {
+    let mut x = 1;
+    let h = Holder { value: &mut x };
+    println_i32(*h.value);
+    let a: [&i32; 2] = [&mut x, &x];
+    println_i32(*a[0]);
+    println_i32(*a[1]);
+}

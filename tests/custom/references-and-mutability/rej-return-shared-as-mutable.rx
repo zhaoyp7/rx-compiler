@@ -1,0 +1,6 @@
+use rx::core::*;
+
+fn f(x: &i32) -> &mut i32 {
+    x
+}
+fn main() {}

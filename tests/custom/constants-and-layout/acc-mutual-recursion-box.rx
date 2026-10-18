@@ -1,0 +1,4 @@
+use rx::core::*;
+struct A { b: Box<B> }
+struct B { a: Box<A> }
+fn main() {}

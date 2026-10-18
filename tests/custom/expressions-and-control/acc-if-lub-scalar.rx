@@ -1,0 +1,5 @@
+use rx::core::*;
+fn main() {
+    let x = if true { 1 } else { 2 };
+    println_i32(x);
+}

@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn to_shared(p: &mut i32) -> &i32 {
+    p
+}
+fn main() {
+    let mut x = 1;
+    let r: &i32 = if true { &mut x } else { &x };
+    println_i32(*r);
+    let s = to_shared(&mut x);
+    println_i32(*s);
+}

@@ -1,0 +1,5 @@
+use rx::core::*;
+
+fn main() {
+    let x: i32<bool> = 1;
+}

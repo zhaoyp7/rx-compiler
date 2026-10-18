@@ -1,0 +1,68 @@
+[
+  {
+    "source": "acc-forward-mutual-recursion.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Forward calls and mutual recursion use pre-scanned signatures."
+  },
+  {
+    "source": "acc-protected-name-as-field.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Protected value names are allowed as fields."
+  },
+  {
+    "source": "acc-shadowing-local-after-init.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A let binding is introduced after its initializer and shadows outer names."
+  },
+  {
+    "source": "acc-struct-and-const-same-name.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Type and value namespaces allow a struct and a const with the same name."
+  },
+  {
+    "source": "acc-struct-function-same-name.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Structs and functions occupy separate namespaces."
+  },
+  {
+    "source": "rej-entry-main-return-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "main must return unit."
+  },
+  {
+    "source": "rej-main-value-parameter.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "main cannot have value parameters."
+  },
+  {
+    "source": "rej-primitive-type-args.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Primitive types accept no generic arguments."
+  },
+  {
+    "source": "rej-protected-top-level-fn.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Protected I/O names cannot be top-level functions."
+  },
+  {
+    "source": "rej-self-outside-method.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "self is not available outside a receiver method."
+  },
+  {
+    "source": "rej-shadowed-function-call.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A local binding shadows a function and makes a later call non-callable."
+  }
+]

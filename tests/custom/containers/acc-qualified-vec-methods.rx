@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn main() {
+    let mut v = Vec::<i32>::new();
+    Vec::<i32>::push(&mut v, 10);
+    Vec::<i32>::push(&mut v, 20);
+    println_i32(Vec::<i32>::len(&v) as i32);
+    println_i32(Vec::<i32>::is_empty(&v) as i32);
+    let x = Vec::<i32>::remove(&mut v, 0);
+    println_i32(x);
+    println_i32(Vec::<i32>::len(&v) as i32);
+}

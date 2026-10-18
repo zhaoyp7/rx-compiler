@@ -1,0 +1,12 @@
+use rx::core::*;
+
+struct Opaque {
+    value: i32,
+}
+fn main() {
+    let o = Opaque { value: 4 };
+    let r = &o;
+    let c = r.clone();
+    println_i32(c.value);
+    println_i32(r.value);
+}

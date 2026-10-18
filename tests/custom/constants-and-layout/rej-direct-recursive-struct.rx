@@ -1,0 +1,6 @@
+use rx::core::*;
+
+struct S {
+    child: S,
+}
+fn main() {}

@@ -1,0 +1,6 @@
+use rx::core::*;
+fn main() {
+    let v = Vec::<i32>::new();
+    let c = Vec::<i32>::clone(&v);
+    println_i32(Vec::<i32>::len(&c) as i32);
+}

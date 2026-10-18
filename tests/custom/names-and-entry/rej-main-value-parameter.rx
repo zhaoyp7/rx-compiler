@@ -1,0 +1,3 @@
+use rx::core::*;
+
+fn main(x: i32) {}

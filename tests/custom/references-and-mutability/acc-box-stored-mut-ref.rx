@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn update(value: Box<&mut i32>) {
+    **value = 2;
+    let target: &mut i32 = *value;
+    *target += 1;
+}
+fn main() {
+    let mut x = 1;
+    update(Box::<&mut i32>::new(&mut x));
+    println_i32(x);
+}

@@ -1,0 +1,4 @@
+use rx::core::*;
+#[derive(Clone, Copy)]
+struct S { v: Vec<i32> }
+fn main() {}

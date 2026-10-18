@@ -1,0 +1,4 @@
+use rx::core::*;
+fn main() {
+    let a: [i32; true] = [1];
+}

@@ -1,0 +1,6 @@
+use rx::core::*;
+const N: usize = 2;
+fn main() {
+    let a: [i32; N] = [1, 2];
+    println_i32(a[1]);
+}

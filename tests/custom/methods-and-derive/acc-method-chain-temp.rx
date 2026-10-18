@@ -1,0 +1,9 @@
+use rx::core::*;
+#[derive(Clone, Copy)]
+struct C { value: i32 }
+impl C {
+    fn new() -> Self { C { value: 1 } }
+    fn changed(mut self) -> Self { self.value += 1; self }
+    fn value(&self) -> i32 { self.value }
+}
+fn main() { println_i32(C::new().changed().value()); }

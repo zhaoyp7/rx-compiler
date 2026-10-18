@@ -1,0 +1,7 @@
+use rx::core::*;
+
+const A: i32 = B;
+const B: i32 = A;
+fn main() {
+    let x = A;
+}

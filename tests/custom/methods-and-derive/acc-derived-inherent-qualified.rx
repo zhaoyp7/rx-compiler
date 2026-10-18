@@ -1,0 +1,22 @@
+use rx::core::*;
+
+#[derive(Clone)]
+struct Inner {
+    value: i32,
+}
+impl Inner {
+    fn clone(&self) -> i32 {
+        self.value + 1
+    }
+}
+#[derive(Clone)]
+struct Outer {
+    inner: Inner,
+}
+fn main() {
+    let i = Inner { value: 3 };
+    println_i32(Inner::clone(&i));
+    let o = Outer { inner: i };
+    let c = Outer::clone(&o);
+    println_i32(c.inner.value);
+}

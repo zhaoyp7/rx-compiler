@@ -1,0 +1,6 @@
+use rx::core::*;
+fn main() {
+    let a = 1;
+    let mut b = 2;
+    println_i32((&a < &mut b) as i32);
+}

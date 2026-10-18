@@ -1,0 +1,6 @@
+use rx::core::*;
+
+fn diverge() -> i32 {
+    loop {}
+}
+fn main() {}

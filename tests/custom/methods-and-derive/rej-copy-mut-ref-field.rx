@@ -1,0 +1,7 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct S<'a> {
+    value: &'a mut i32,
+}
+fn main() {}

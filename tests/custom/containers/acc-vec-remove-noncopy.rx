@@ -1,0 +1,7 @@
+use rx::core::*;
+fn main() {
+    let mut v = Vec::<Box<i32>>::new();
+    Vec::<Box<i32>>::push(&mut v, Box::<i32>::new(1));
+    let x = Vec::<Box<i32>>::remove(&mut v, 0);
+    println_i32(*x);
+}

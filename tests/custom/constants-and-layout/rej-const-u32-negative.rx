@@ -1,0 +1,3 @@
+use rx::core::*;
+const A: u32 = -1;
+fn main() {}

@@ -1,0 +1,6 @@
+use rx::core::*;
+struct S { print_i32: i32 }
+fn main() {
+    let s = S { print_i32: 3 };
+    println_i32(s.print_i32);
+}

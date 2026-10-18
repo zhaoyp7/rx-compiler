@@ -1,0 +1,18 @@
+use rx::core::*;
+
+struct S {
+    value: i32,
+}
+impl S {
+    fn read(&self) -> i32 {
+        self.value
+    }
+    fn add(&mut self, n: i32) {
+        self.value += n;
+    }
+}
+fn main() {
+    let mut s = S { value: 1 };
+    S::add(&mut s, 2);
+    println_i32(S::read(&s));
+}

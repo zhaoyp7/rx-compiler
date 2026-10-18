@@ -1,0 +1,68 @@
+[
+  {
+    "source": "acc-assignment-expected-literal.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Assignment RHS receives the target type as expected."
+  },
+  {
+    "source": "acc-if-lub-scalar.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "If branches with no expected type use LUB for scalars."
+  },
+  {
+    "source": "acc-loop-break-lub.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Loop break values use LUB when no expected type is fixed."
+  },
+  {
+    "source": "acc-never-loop.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A diverging loop has the never type and can satisfy any return type."
+  },
+  {
+    "source": "acc-unreachable-valid.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Unreachable valid code is still allowed."
+  },
+  {
+    "source": "rej-assignment-nonplace.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Assignment requires a place on the left."
+  },
+  {
+    "source": "rej-break-outside-loop.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "break is only valid inside a loop."
+  },
+  {
+    "source": "rej-continue-outside-loop.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "continue is only valid inside a loop."
+  },
+  {
+    "source": "rej-if-branch-type-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "If branches must have a common type."
+  },
+  {
+    "source": "rej-return-wrong-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A function tail must match the declared result type."
+  },
+  {
+    "source": "rej-unreachable-unknown.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Names in unreachable code are still checked."
+  }
+]

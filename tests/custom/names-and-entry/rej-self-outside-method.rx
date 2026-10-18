@@ -1,0 +1,3 @@
+use rx::core::*;
+fn f() -> i32 { self }
+fn main() {}

@@ -1,0 +1,12 @@
+use rx::core::*;
+
+struct S {
+    value: i32,
+}
+impl S {
+    const N: usize = 3;
+}
+fn main() {
+    let a: [i32; S::N] = [1, 2, 3];
+    println_i32(a[2]);
+}

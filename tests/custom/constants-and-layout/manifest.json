@@ -1,0 +1,68 @@
+[
+  {
+    "source": "acc-array-length-const-path.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Array lengths can use const paths."
+  },
+  {
+    "source": "acc-assoc-const-array-length.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Associated constants can provide fixed array lengths."
+  },
+  {
+    "source": "acc-const-negation-and-suffix.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Const evaluation supports negative signed literals and suffixes."
+  },
+  {
+    "source": "acc-mutual-recursion-box.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Box breaks mutual recursive layout cycles."
+  },
+  {
+    "source": "acc-recursive-box-struct.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Box provides indirection and breaks the layout cycle."
+  },
+  {
+    "source": "rej-array-length-bool.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Array lengths must be usize constants."
+  },
+  {
+    "source": "rej-array-length-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A fixed array literal must match its declared length."
+  },
+  {
+    "source": "rej-const-cycle.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A constant dependency cycle is a compile error."
+  },
+  {
+    "source": "rej-const-u32-negative.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A negative literal cannot initialize a u32 const."
+  },
+  {
+    "source": "rej-direct-recursive-struct.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A struct cannot contain itself by value."
+  },
+  {
+    "source": "rej-recursive-array-struct.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "An inline recursive array makes the struct layout infinite."
+  }
+]

@@ -1,0 +1,9 @@
+use rx::core::*;
+
+struct Holder<'a> {
+    value: &'a i32,
+}
+fn main() {
+    let x = 1u32;
+    let h = Holder { value: &x };
+}

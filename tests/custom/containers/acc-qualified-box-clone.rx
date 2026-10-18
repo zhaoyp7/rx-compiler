@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn main() {
+    let a = Box::<i32>::new(7);
+    let b = Box::<i32>::clone(&a);
+    println_i32(*a);
+    println_i32(*b);
+}

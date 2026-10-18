@@ -1,0 +1,110 @@
+[
+  {
+    "source": "acc-copy-struct-array.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "An array of Copy structs is independently copyable."
+  },
+  {
+    "source": "acc-derived-inherent-qualified.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Qualified inherent clone wins over derived Clone; derived clone handles other structs."
+  },
+  {
+    "source": "acc-method-chain-temp.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Method chains materialize temporaries and use receiver adjustment."
+  },
+  {
+    "source": "acc-method-on-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A mutable reference receiver can call a mutable method."
+  },
+  {
+    "source": "acc-method-receiver-box-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Method lookup deduces through Box and mutable Box references."
+  },
+  {
+    "source": "acc-qualified-explicit-associated.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Explicit Type::method calls pass the receiver as an ordinary argument."
+  },
+  {
+    "source": "acc-recursive-derive-node.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Recursive Vec field supports derived Clone, PartialEq, and Eq."
+  },
+  {
+    "source": "rej-copy-mut-ref-field.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Mutable reference fields are not Copy."
+  },
+  {
+    "source": "rej-copy-struct-with-vec.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A struct with a Vec field cannot derive Copy."
+  },
+  {
+    "source": "rej-duplicate-derive-custom.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Repeated derive of the same trait is an error."
+  },
+  {
+    "source": "rej-eq-without-partialeq.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Eq requires an explicit PartialEq derive."
+  },
+  {
+    "source": "rej-method-argument-does-not-filter.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Argument types do not filter method candidates; the selected method is checked afterward."
+  },
+  {
+    "source": "rej-method-associated-function-dot.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "An associated function without a receiver is not a dot-call method."
+  },
+  {
+    "source": "rej-method-wrong-arg-count.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A selected method checks its ordinary argument count."
+  },
+  {
+    "source": "rej-mut-method-on-shared-ref.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A shared receiver cannot call a mutable method."
+  },
+  {
+    "source": "rej-mutable-receiver-on-immutable-local.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A mutable receiver requires a mutable place."
+  },
+  {
+    "source": "rej-partialeq-field-no-derive.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Derived PartialEq requires every field to support PartialEq."
+  },
+  {
+    "source": "rej-recursive-copy.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A recursive Vec field prevents Copy."
+  }
+]

@@ -1,0 +1,6 @@
+use rx::core::*;
+fn main() {
+    let mut x: u32 = 0;
+    x = 1;
+    println_i32(x as i32);
+}

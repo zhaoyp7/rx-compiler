@@ -1,0 +1,4 @@
+use rx::core::*;
+const A: i32 = -5;
+const B: u32 = 7u32;
+fn main() { println_i32(A + B as i32); }
