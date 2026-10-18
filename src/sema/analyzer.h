@@ -129,6 +129,12 @@ private:
   bool layoutStruct(int id);
   void checkLayouts();
   bool typeSizeAlign(TypeId id, uint32_t &size, uint32_t &align);
+
+  bool pathAllowsStoredMutRef(const Expr &e);
+  bool isCoercible(TypeId from, TypeId to);
+  bool checkCoercion(const Expr &expr, TypeId from, TypeId to);
+  bool checkOrderingOperands(TypeId left, TypeId right);
+  bool hasMutableContainerAccess(const Expr &base);
 };
 
 } // namespace rx

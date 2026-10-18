@@ -218,7 +218,7 @@ bool SemanticAnalyzer::checkCallArgs(int symbolId, const std::vector<ExprPtr> &a
                           ? params[startParam + i]
                           : InvalidType;
     TypeId type = infer(*args[i], expected);
-    if (expected != InvalidType && type != InvalidType && expected != type) {
+    if (expected != InvalidType && type != InvalidType && !checkCoercion(*args[i], type, expected)) {
       error();
       ok = false;
     }
@@ -310,8 +310,9 @@ bool SemanticAnalyzer::checkDerives() {
     bool ok = true;
     if (sd->derives.copy && !sd->derives.clone) {
       ok = false;
-    }
-    if (sd->derives.eq && !sd->derives.partialEq) {
+    } else if (sd->derives.eq && !sd->derives.partialEq) {
+      ok = false;
+    } else if (sd->derives.duplicate) {
       ok = false;
     }
     auto it = structFieldTypes.find(typeTable[sd->name]);
@@ -743,7 +744,7 @@ bool SemanticAnalyzer::resolveStmt(const Stmt &stmt) {
     }
     TypeId init = infer(*let->init, expected_id);
     if (expected_id != InvalidType && init != InvalidType &&
-        init != expected_id) {
+        !checkCoercion(*let->init, init, expected_id)) {
       error();
     }
     int id = addSymbol(let->name, SymbolKind::Local, stmt.span, &stmt);
@@ -779,6 +780,11 @@ TypeId SemanticAnalyzer::resolveBlock(const BlockExpr &block, TypeId expected) {
   }
   if (block.tail != nullptr) {
     tailType = infer(*block.tail, expected);
+    if (expected != InvalidType && tailType != InvalidType &&
+        !isNever(tailType) &&
+        !checkCoercion(*block.tail, tailType, expected)) {
+      error();
+    }
   }
   popScope();
   if (diverged) {
@@ -829,8 +835,8 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
   currentReturnType = res_type;
   if (fn.body != nullptr) {
     TypeId body_type = resolveBlock(*fn.body, res_type);
-    if (body_type != InvalidType && body_type != res_type &&
-        !isNever(body_type)) {
+    if (fn.body->tail == nullptr && body_type != InvalidType &&
+        body_type != res_type && !isNever(body_type)) {
       error();
     }
   }
@@ -1321,6 +1327,10 @@ TypeId SemanticAnalyzer::joinTypes(TypeId a, TypeId b) {
     return b;
   } else if (isNever(b)) {
     return a;
+  } else if (isCoercible(b, a)) {
+    return a;
+  } else if (isCoercible(a, b)) {
+    return b;
   }
   error();
   return InvalidType;
@@ -1355,26 +1365,21 @@ bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
     }
     return symbols[it->second].mutableBinding;
   }
-  return isMutableAccess(e);
   if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
-    return isMutablePlace(*field->receiver) || !isPlace(*field->receiver);
+    if (!isPlace(*field->receiver)) {
+      return true;
+    }
+    return hasMutableContainerAccess(*field->receiver);
   } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
-    return isMutablePlace(*index->base) || !isPlace(*index->base);
+    if (!isPlace(*index->base)) {
+      return true;
+    }
+    return hasMutableContainerAccess(*index->base);
   } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
     if (unary->op != UnaryOp::Deref) {
       return false;
     }
-    auto it = exprTypes.find(unary->operand.get());
-    if (it == exprTypes.end() || it->second == InvalidType) {
-      return true;
-    }
-    const TypeInfo &info = types.get(it->second);
-    if (info.kind == TypeKind::Ref) {
-      return info.refMut;
-    } else if (info.kind == TypeKind::Box) {
-      return true;
-    }
-    return false;
+    return isMutableAccess(e);
   }
   return false;
 }
@@ -1397,22 +1402,66 @@ bool SemanticAnalyzer::isMutableAccess(const Expr &e) {
     }
     return false;
   } else if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
-    return isMutableAccess(*field->receiver) || !isPlace(*field->receiver);
+    auto it = exprTypes.find(&e);
+    if (it != exprTypes.end() && it->second != InvalidType) {
+      const TypeInfo &info = types.get(it->second);
+      if (info.kind == TypeKind::Ref && info.refMut && pathAllowsStoredMutRef(*field->receiver)) {
+        return true;
+      }
+    }
+    if (!isPlace(*field->receiver)) {
+      return true;
+    }
+    return isMutableAccess(*field->receiver);
   } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
-    return isMutableAccess(*index->base) || !isPlace(*index->base);
+    auto it = exprTypes.find(index->base.get());
+    if (it == exprTypes.end()) {
+      return false;
+    }
+    TypeId id = it->second;
+    id = autoDerefContainers(id);
+    if (id == InvalidType) {
+      return false;
+    }
+    const TypeInfo &info = types.get(id);
+    if (info.kind == TypeKind::Vec) {
+      if (!isPlace(*index->base)) {
+        return true;
+      }
+      return hasMutableContainerAccess(*index->base);
+    } else if (info.kind == TypeKind::Array) {
+      const TypeInfo &inner_info = types.get(info.inner);
+      if (inner_info.kind == TypeKind::Ref && inner_info.refMut && pathAllowsStoredMutRef(*index->base)) {
+        return true;
+      }
+      if (!isPlace(*index->base)) {
+        return true;
+      }
+      return isMutableAccess(*index->base);
+    }
+    return false;
   } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
     if (unary->op != UnaryOp::Deref) {
       return false;
     }
     auto it = exprTypes.find(unary->operand.get());
     if (it == exprTypes.end() || it->second == InvalidType) {
-      return true;
+      return false;
     }
     const TypeInfo &info = types.get(it->second);
     if (info.kind == TypeKind::Ref) {
-      return info.refMut;
+      if (!info.refMut) {
+        return false;
+      } else if (!isPlace(*unary->operand)) {
+        return true;
+      } else {
+        return pathAllowsStoredMutRef(*unary->operand);
+      }
     } else if (info.kind == TypeKind::Box) {
-      return true;
+      if (!isPlace(*unary->operand)) {
+        return true;
+      }
+      return isMutableAccess(*unary->operand);
     }
     return false;
   }
@@ -1437,7 +1486,7 @@ bool SemanticAnalyzer::isCopyType(TypeId id) {
   } else if (kind == TypeKind::Struct) {
     const StructDecl *stru =
         dynamic_cast<const StructDecl *>(symbols[info.structId].decl);
-    if (stru == nullptr || !stru->derives.copy) {
+    if (stru == nullptr || !stru->derives.copy || !stru->derives.clone) {
       return false;
     }
     auto it = structFieldTypes.find(info.structId);
@@ -1547,6 +1596,156 @@ void SemanticAnalyzer::checkLayouts() {
   }
 }
 
+bool SemanticAnalyzer::hasMutableContainerAccess(const Expr &base) {
+  if (isMutableAccess(base)) {
+    return true;
+  }
+  TypeId t = exprTypes[&base];
+  while (t != InvalidType) {
+    const TypeInfo &info = types.get(t);
+    if (info.kind == TypeKind::Ref) {
+      return info.refMut;
+    } else if (info.kind == TypeKind::Box) {
+      t = info.inner;
+      continue;
+    }
+    break;
+  }
+  return false;
+}
+bool SemanticAnalyzer::pathAllowsStoredMutRef(const Expr &e) {
+  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
+    auto it = bindings.find(path);
+    if (it == bindings.end()) {
+      error();
+      return false;
+    }
+    int id = it->second;
+    TypeId type = symbols[id].type;
+    if (type == InvalidType) {
+      return true;
+    }
+    const TypeInfo &info = types.get(type);
+    if (info.kind == TypeKind::Ref && !info.refMut) {
+      return false;
+    }
+    return true;
+  } else if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
+    return pathAllowsStoredMutRef(*field->receiver);
+  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    auto it = exprTypes.find(index->base.get());
+    if (it == exprTypes.end()) {
+      error();
+      return false;
+    }
+    TypeId type = it->second;
+    type = autoDerefContainers(type);
+    const TypeInfo &info = types.get(type);
+    if (info.kind == TypeKind::Vec) {
+      return hasMutableContainerAccess(*index->base);
+    } else if (info.kind == TypeKind::Array)  {
+      return pathAllowsStoredMutRef(*index->base);
+    } else {
+      return false;
+    }
+  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    if (unary->op != UnaryOp::Deref) {
+      return false;
+    }
+    auto it = exprTypes.find(unary->operand.get());
+    if (it == exprTypes.end()) {
+      error();
+      return false;
+    }
+    TypeId type = it->second;
+    const TypeInfo &info = types.get(type);
+    if (info.kind == TypeKind::Ref) {
+      if (!info.refMut) {
+        return false;
+      }
+      return pathAllowsStoredMutRef(*unary->operand);
+    } else if (info.kind == TypeKind::Box) {
+      return pathAllowsStoredMutRef(*unary->operand);
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+}
+bool SemanticAnalyzer::isCoercible(TypeId from, TypeId to) {
+  if (from == InvalidType || to == InvalidType || from == to || isNever(from)) {
+    return true;
+  }
+  const TypeInfo &toinfo = types.get(to);
+  const TypeInfo &frominfo = types.get(from);
+  if (toinfo.kind != TypeKind::Ref || frominfo.kind != TypeKind::Ref) {
+    return false;
+  } else if (toinfo.refMut && !frominfo.refMut) {
+    return false;
+  }
+  bool shared_ref = false;
+  TypeId now = frominfo.inner;
+  TypeId to_type = toinfo.inner;
+  while (true) {
+    if (now == to_type) {
+      return ((toinfo.refMut && shared_ref) ? false : true);
+    }
+    const TypeInfo &nowInfo = types.get(now);
+    if (nowInfo.kind == TypeKind::Ref) {
+      shared_ref |= (!nowInfo.refMut);
+      now = nowInfo.inner;
+    } else if (nowInfo.kind == TypeKind::Box) {
+      now = nowInfo.inner;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
+bool SemanticAnalyzer::checkCoercion(const Expr &expr, TypeId from, TypeId to) {
+  if (!isCoercible(from, to)) {
+    return false;
+  } else if (from == InvalidType || to == InvalidType) {
+    return true;
+  }
+  const TypeInfo &frominfo = types.get(from);
+  const TypeInfo &toinfo = types.get(to);
+  if (frominfo.kind == TypeKind::Ref && toinfo.kind == TypeKind::Ref && frominfo.refMut && toinfo.refMut && isPlace(expr) && !pathAllowsStoredMutRef(expr)) {
+    error();
+    return false;
+  }
+  return true;
+}
+bool SemanticAnalyzer::checkOrderingOperands(TypeId left, TypeId right) {
+  if (left == InvalidType || right == InvalidType) {
+    return true;
+  }
+  if (left == right) {
+    const TypeInfo &info = types.get(left);
+    if (info.kind == TypeKind::Ref) {
+      return checkOrderingOperands(info.inner, info.inner);
+    } else if (isIntType(left) || isBoolType(left)) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+  const TypeInfo &lInfo = types.get(left);
+  const TypeInfo &rInfo = types.get(right);
+  if (lInfo.kind == TypeKind::Ref && rInfo.kind == TypeKind::Ref && !lInfo.refMut && rInfo.refMut) {
+    if (lInfo.inner == rInfo.inner) {
+      return checkOrderingOperands(lInfo.inner, rInfo.inner);
+    }
+    return false;
+  } else if (lInfo.kind == TypeKind::Ref && rInfo.kind == TypeKind::Ref && lInfo.refMut && !rInfo.refMut) {
+    return false;
+  } else if ((lInfo.kind == TypeKind::Ref) != (rInfo.kind == TypeKind::Ref)) {
+    return false;
+  }
+  return false;
+}
+
 TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
   TypeId res = InvalidType;
   if (auto *lit = dynamic_cast<const IntLit *>(&expr)) {
@@ -1623,11 +1822,11 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       TypeId then_id = resolveBlock(*ifex->then, expected);
       TypeId else_id = infer(*ifex->elseBranch, expected);
       if (expected != InvalidType) {
-        if (then_id != InvalidType && then_id != expected &&
-            !isNever(then_id)) {
+        if (then_id != InvalidType && !isNever(then_id) &&
+            !isCoercible(then_id, expected)) {
           error();
-        } else if (else_id != InvalidType && else_id != expected &&
-                   !isNever(else_id)) {
+        } else if (else_id != InvalidType && !isNever(else_id) &&
+                   !checkCoercion(*ifex->elseBranch, else_id, expected)) {
           error();
         }
         res = expected;
@@ -1654,7 +1853,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       res = neverType();
     } else if (expected != InvalidType) {
       for (auto type : breaktypes) {
-        if (type != InvalidType && type != expected && !isNever(type)) {
+        if (type != InvalidType && !isNever(type) &&
+            !isCoercible(type, expected)) {
           error();
         }
       }
@@ -1692,7 +1892,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
       TypeId type = infer(*breakex->value, loops[idx].expected);
       if (loops[idx].expected != InvalidType && type != InvalidType &&
-          type != loops[idx].expected && !isNever(type)) {
+          !isNever(type) &&
+          !checkCoercion(*breakex->value, type, loops[idx].expected)) {
         error();
       }
       loops[idx].breakTypes.push_back(type);
@@ -1713,7 +1914,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     if (returnex->value != nullptr) {
       TypeId id = infer(*returnex->value, currentReturnType);
       if (currentReturnType != InvalidType && id != InvalidType &&
-          id != currentReturnType && !isNever(id)) {
+          !isNever(id) &&
+          !checkCoercion(*returnex->value, id, currentReturnType)) {
         error();
       }
     } else {
@@ -1767,14 +1969,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       }
     } else if (op == BinaryOp::Le || op == BinaryOp::Lt || op == BinaryOp::Ge ||
                op == BinaryOp::Gt) {
-      auto tmp_l = stripSharedRef(l_id), tmp_r = stripSharedRef(r_id);
-      if (tmp_l != InvalidType && !isIntType(tmp_l) && !isBoolType(tmp_l)) {
-        error();
-      } else if (tmp_r != InvalidType && !isIntType(tmp_r) &&
-                 !isBoolType(tmp_r)) {
-        error();
-      } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
-                 tmp_l != tmp_r) {
+      if (!checkOrderingOperands(l_id, r_id)) {
         error();
       }
       res = types.intern(TypeInfo{TypeKind::Bool});
@@ -1803,7 +1998,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
     }
     if (assign->op == AssignOp::Assign) {
       TypeId r_id = infer(*assign->rhs, l_id);
-      if (l_id != InvalidType && r_id != InvalidType && l_id != r_id) {
+      if (l_id != InvalidType && r_id != InvalidType && !checkCoercion(*assign->rhs, r_id, l_id)) {
         error();
       }
     } else {
@@ -1922,7 +2117,8 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                   error();
                 } else {
                   TypeId a = infer(*call->args[0], inner);
-                  if (a != InvalidType && inner != InvalidType && a != inner) {
+                  if (a != InvalidType && inner != InvalidType &&
+                      !checkCoercion(*call->args[0], a, inner)) {
                     error();
                   }
                 }
@@ -1942,7 +2138,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                   error();
                 } else {
                   TypeId a = infer(*call->args[0], refInner);
-                  if (a != InvalidType && a != refInner) {
+                  if (a != InvalidType && !checkCoercion(*call->args[0], a, refInner)) {
                     error();
                   }
                 }
@@ -1957,7 +2153,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
                   error();
                 } else {
                   TypeId a = infer(*call->args[0], refInner);
-                  if (a != InvalidType && a != refInner) {
+                  if (a != InvalidType && !checkCoercion(*call->args[0], a, refInner)) {
                     error();
                   }
                 }
@@ -2001,7 +2197,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       TypeId type = infer(*elem, elem_expected);
       if (array_expected) {
         if (type != InvalidType && elem_expected != InvalidType &&
-            type != elem_expected) {
+            !checkCoercion(*elem, type, elem_expected)) {
           error();
         }
       } else {
@@ -2022,6 +2218,11 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       elem_expected = types.get(expected).inner;
     }
     TypeId elem_type = infer(*array->elem, elem_expected);
+    if (array_expected && elem_type != InvalidType &&
+        elem_expected != InvalidType &&
+        !checkCoercion(*array->elem, elem_type, elem_expected)) {
+      error();
+    }
     ConstVal val;
     if (!calcConstValue(*array->count, ConstType::Usize, val)) {
       res = InvalidType;
@@ -2090,8 +2291,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         res = (it != fnReturnTypes.end()) ? it->second : InvalidType;
       } else {
         TypeId cloneType = InvalidType;
-        if (method->method == "clone" &&
-            findBuiltinClone(receiver, cloneType)) {
+        if (method->method == "clone" && findBuiltinClone(receiver, cloneType)) {
           if (!method->args.empty()) {
             error();
             for (auto &arg : method->args) {
@@ -2122,7 +2322,9 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
             res = types.intern(TypeInfo{TypeKind::Bool});
             matched = true;
           } else if (method->method == "push" && kind == TypeKind::Vec) {
-            if (method->args.size() != 1) {
+            if (!isMutableAccess(*method->receiver)) {
+              error();
+            } else if (method->args.size() != 1) {
               error();
             } else {
               TypeId a = infer(*method->args[0], elem);
@@ -2131,7 +2333,9 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
             res = unitType();
             matched = true;
           } else if (method->method == "remove" && kind == TypeKind::Vec) {
-            if (method->args.size() != 1) {
+            if (!isMutableAccess(*method->receiver)) {
+              error();
+            } else if (method->args.size() != 1) {
               error();
             } else {
               TypeId a = infer(*method->args[0], usizeT);
@@ -2188,7 +2392,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
           }
           TypeId type = infer(*init.value, fit->second);
           if (type != InvalidType && fit->second != InvalidType &&
-              type != fit->second) {
+              !checkCoercion(*init.value, type, fit->second)) {
             error();
           }
         }

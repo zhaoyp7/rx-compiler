@@ -96,6 +96,7 @@ struct Derives {
   bool clone = false;
   bool partialEq = false;
   bool eq = false;
+  bool duplicate = false;
 };
 
 struct ConstValue : Node {};

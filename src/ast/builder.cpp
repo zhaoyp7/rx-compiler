@@ -3,6 +3,7 @@
 #include "ast/ast.h"
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 
 namespace rx {
@@ -367,16 +368,25 @@ FieldDef ASTBuilder::buildFieldDef(RxParser::StructFieldContext *ctx) {
 }
 Derives ASTBuilder::buildDerives(const std::vector<RxParser::OuterAttributeContext *> &attrs) {
   Derives ans;
+  std::unordered_map<std::string, bool> map;
   for (auto attr : attrs) {
     for (auto name : attr->deriveName()) {
       if (name->COPY() != nullptr) {
         ans.copy = true;
+        ans.duplicate |= (map.find("copy") != map.end());
+        map["copy"] = true;
       } else if (name->CLONE() != nullptr) {
         ans.clone = true;
+        ans.duplicate |= (map.find("clone") != map.end());
+        map["clone"] = true;
       } else if (name->PARTIAL_EQ() != nullptr) {
         ans.partialEq = true;
+        ans.duplicate |= (map.find("partialEq") != map.end());
+        map["partialEq"] = true;
       } else if (name->EQ() != nullptr) {
         ans.eq = true;
+        ans.duplicate |= (map.find("eq") != map.end());
+        map["eq"] = true;
       }
     }
   }
