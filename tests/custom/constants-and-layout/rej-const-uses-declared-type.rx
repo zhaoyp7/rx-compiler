@@ -1,0 +1,12 @@
+use rx::core::*;
+
+const N: i32 = 1;
+
+fn main() {
+    if N {
+        println_i32(1);
+    }
+    let a = [1, 2];
+    println_i32(a[N]);
+    N.foo();
+}

@@ -1,0 +1,18 @@
+use rx::core::*;
+
+#[derive(Clone)]
+struct S {
+    x: i32,
+}
+
+fn main() {
+    let b = Box::<S>::new(S { x: 1 });
+    let c: S = b.clone();
+
+    let s = S { x: 2 };
+    let r = &s;
+    let rr = &r;
+    let d: S = rr.clone();
+
+    println_i32(c.x + d.x);
+}

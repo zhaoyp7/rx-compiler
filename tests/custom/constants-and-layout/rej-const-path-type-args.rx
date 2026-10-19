@@ -1,0 +1,16 @@
+use rx::core::*;
+
+struct Config {
+    x: i32,
+}
+
+impl Config {
+    const N: usize = 3;
+}
+
+const COUNT: usize = Config::<i32>::N;
+
+fn main() {
+    let a: [i32; COUNT] = [0; COUNT];
+    println_i32(a.len() as i32);
+}

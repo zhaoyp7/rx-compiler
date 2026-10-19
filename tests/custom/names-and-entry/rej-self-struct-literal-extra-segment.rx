@@ -1,0 +1,16 @@
+use rx::core::*;
+
+struct S {
+    x: i32,
+}
+
+impl S {
+    fn make() -> S {
+        Self::Foo { x: 1 }
+    }
+}
+
+fn main() {
+    let s = S::make();
+    println_i32(s.x);
+}

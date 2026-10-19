@@ -1,0 +1,20 @@
+use rx::core::*;
+
+struct Inner {
+    y: i32,
+}
+
+struct S {
+    inner: Inner,
+}
+
+fn update(b: Box<&mut S>) {
+    b.inner.y = 1;
+}
+
+fn main() {
+    let mut s = S { inner: Inner { y: 0 } };
+    let b = Box::<&mut S>::new(&mut s);
+    update(b);
+    println_i32(s.inner.y);
+}

@@ -228,6 +228,14 @@ ConstValuePtr ASTBuilder::buildConst(antlr4::tree::ParseTree *node) {
     } else if (ctx->pathInExpression() != nullptr) {
       auto ans = std::make_unique<ConstPath>();
       for (auto *tmp : ctx->pathInExpression()->pathExprSegment()) {
+        if (tmp->genericArgs() != nullptr) {
+          for (auto *arg : tmp->genericArgs()->genericArg()) {
+            if (arg->typeRef() != nullptr) {
+              fail();
+              return nullptr;
+            }
+          }
+        }
         ans->names.push_back(tmp->pathIdentSegment()->getText());
       }
       return ans;

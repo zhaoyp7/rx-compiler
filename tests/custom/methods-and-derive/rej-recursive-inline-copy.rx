@@ -1,0 +1,8 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct S {
+    s: S,
+}
+
+fn main() {}

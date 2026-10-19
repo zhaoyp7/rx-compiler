@@ -1,0 +1,12 @@
+use rx::core::*;
+
+struct S {
+    x: i32,
+}
+
+fn main() {
+    let s = S { x: 0 };
+    let mut a = [&s];
+    a[0].x = 1;
+    println_i32(s.x);
+}

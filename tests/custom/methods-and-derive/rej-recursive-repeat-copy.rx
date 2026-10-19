@@ -1,0 +1,14 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct S {
+    s: S,
+}
+
+fn make() -> S {
+    loop {}
+}
+
+fn main() {
+    let a = [make(); 2];
+}

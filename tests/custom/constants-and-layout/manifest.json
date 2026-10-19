@@ -64,5 +64,47 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "An inline recursive array makes the struct layout infinite."
+  },
+  {
+    "source": "rej-const-type-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A constant path is checked against its declared type."
+  },
+  {
+    "source": "rej-const-uses-declared-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Constant expressions use their declared type in conditions, indices, and method lookup."
+  },
+  {
+    "source": "rej-const-primitive-type-args.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Primitive constant types accept no generic arguments."
+  },
+  {
+    "source": "rej-const-path-type-args.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Const paths retain generic arguments and reject them on non-generic structs."
+  },
+  {
+    "source": "acc-const-expression-type.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A constant path has its declared type in ordinary expressions."
+  },
+  {
+    "source": "acc-const-assoc-expression-type.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "An associated constant path has its declared type in method bodies."
+  },
+  {
+    "source": "rej-const-forward-type-mismatch.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A constant's declared type is visible to function bodies even when the definition appears later."
   }
 ]

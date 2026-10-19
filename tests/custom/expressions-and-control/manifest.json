@@ -64,5 +64,11 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "Names in unreachable code are still checked."
+  },
+  {
+    "source": "rej-call-nonpath-callee.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A call callee must be a declared function, associated function, or builtin."
   }
 ]

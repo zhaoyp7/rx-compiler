@@ -64,5 +64,23 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "A local binding shadows a function and makes a later call non-callable."
+  },
+  {
+    "source": "rej-struct-literal-generic-path.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Struct literals do not accept generic arguments on non-generic structs."
+  },
+  {
+    "source": "rej-struct-literal-extra-segment.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Struct literal paths must contain exactly one segment."
+  },
+  {
+    "source": "rej-self-struct-literal-extra-segment.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Self struct literals must not have extra path segments."
   }
 ]

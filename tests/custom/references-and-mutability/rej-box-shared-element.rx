@@ -1,0 +1,20 @@
+use rx::core::*;
+
+struct S {
+    x: i32,
+}
+
+impl S {
+    fn inc(&mut self) {
+        self.x += 1;
+    }
+}
+
+fn main() {
+    let s = S { x: 0 };
+    let mut b = Box::<&S>::new(&s);
+    b.x = 1;
+    b.inc();
+    Box::<&S>::new(&s).x = 1;
+    println_i32(s.x);
+}

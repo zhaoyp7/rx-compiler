@@ -1,0 +1,8 @@
+use rx::core::*;
+
+const N: u32 = 1;
+
+fn main() {
+    let x: u32 = N + 1u32;
+    println_i32(x as i32);
+}

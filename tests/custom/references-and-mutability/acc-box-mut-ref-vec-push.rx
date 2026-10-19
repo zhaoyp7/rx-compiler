@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn update(v: Box<&mut Vec<i32>>) {
+    v.push(1);
+}
+
+fn main() {
+    let mut v = Vec::<i32>::new();
+    let b = Box::<&mut Vec<i32>>::new(&mut v);
+    update(b);
+    println_i32(v.len() as i32);
+}

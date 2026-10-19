@@ -40,7 +40,9 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   collectCrate(crate);
   resolveCrate(crate);
   checkLayouts();
-  checkDerives();
+  if (!failed) {
+    checkDerives();
+  }
   checkEntry();
   return (failed == false);
 }
@@ -225,8 +227,8 @@ bool SemanticAnalyzer::checkCallArgs(int symbolId, const std::vector<ExprPtr> &a
   }
   return ok;
 }
-int SemanticAnalyzer::findUserMethod(TypeId receiver, const std::string &name, TypeId &selectedReceiver) {
-  std::vector<TypeId> candidates;
+void SemanticAnalyzer::collectMethodCandidates(TypeId receiver,
+                                               std::vector<TypeId> &candidates) {
   TypeId type = receiver;
   while (type != InvalidType) {
     candidates.push_back(type);
@@ -239,63 +241,86 @@ int SemanticAnalyzer::findUserMethod(TypeId receiver, const std::string &name, T
       break;
     }
   }
-  for (TypeId candidate : candidates) {
-    int structId = InvalidSymbol;
-    const TypeInfo &ci = types.get(candidate);
-    if (ci.kind == TypeKind::Struct) {
-      structId = ci.structId;
-    } else if (ci.kind == TypeKind::Ref &&
-               types.get(ci.inner).kind == TypeKind::Struct) {
-      structId = types.get(ci.inner).structId;
-    }
-    if (structId == InvalidSymbol) continue;
-    auto tableIt = assocTable.find(structId);
-    if (tableIt != assocTable.end()) {
-      auto it = tableIt->second.find(name);
-      if (it != tableIt->second.end()) {
-        int id = it->second;
-        if (symbols[id].kind == SymbolKind::AssocFn &&
-            fnReceiverTypes[id] == candidate) {
-          selectedReceiver = candidate;
-          return id;
-        }
-      }
-    }
-    if (name == "clone" && ci.kind == TypeKind::Ref && !ci.refMut && types.get(ci.inner).kind == TypeKind::Struct) {
-      int sid = types.get(ci.inner).structId;
-      const StructDecl *sd =
-          dynamic_cast<const StructDecl *>(symbols[sid].decl);
-      if (sd != nullptr && sd->derives.clone) {
+}
+int SemanticAnalyzer::findUserMethodAtCandidate(TypeId candidate,
+                                                const std::string &name,
+                                                TypeId &selectedReceiver) {
+  int structId = InvalidSymbol;
+  const TypeInfo &ci = types.get(candidate);
+  if (ci.kind == TypeKind::Struct) {
+    structId = ci.structId;
+  } else if (ci.kind == TypeKind::Ref &&
+             types.get(ci.inner).kind == TypeKind::Struct) {
+    structId = types.get(ci.inner).structId;
+  }
+  if (structId == InvalidSymbol) {
+    return InvalidSymbol;
+  }
+  auto tableIt = assocTable.find(structId);
+  if (tableIt != assocTable.end()) {
+    auto it = tableIt->second.find(name);
+    if (it != tableIt->second.end()) {
+      int id = it->second;
+      if (symbols[id].kind == SymbolKind::AssocFn &&
+          fnReceiverTypes[id] == candidate) {
         selectedReceiver = candidate;
-        return getDerivedClone(sid);
+        return id;
       }
+    }
+  }
+  if (name == "clone" && ci.kind == TypeKind::Ref && !ci.refMut &&
+      types.get(ci.inner).kind == TypeKind::Struct) {
+    int sid = types.get(ci.inner).structId;
+    const StructDecl *sd =
+        dynamic_cast<const StructDecl *>(symbols[sid].decl);
+    if (sd != nullptr && sd->derives.clone) {
+      selectedReceiver = candidate;
+      return getDerivedClone(sid);
     }
   }
   return InvalidSymbol;
 }
-bool SemanticAnalyzer::findBuiltinClone(TypeId receiver, TypeId &result) {
-  TypeId type = receiver;
-  while (type != InvalidType) {
-    const TypeInfo &info = types.get(type);
-    if (info.kind == TypeKind::Ref && !info.refMut) {
-      std::unordered_set<int> visiting;
-      if (supportsClone(info.inner, visiting)) {
-        result = info.inner;
-        return true;
-      }
-    }
-    std::unordered_set<int> visiting;
-    if (supportsClone(type, visiting)) {
-      result = type;
-      return true;
-    }
-    if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
-      type = info.inner;
-    } else {
-      break;
+int SemanticAnalyzer::findUserMethod(TypeId receiver, const std::string &name,
+                                     TypeId &selectedReceiver) {
+  std::vector<TypeId> candidates;
+  collectMethodCandidates(receiver, candidates);
+  for (TypeId candidate : candidates) {
+    int id = findUserMethodAtCandidate(candidate, name, selectedReceiver);
+    if (id != InvalidSymbol) {
+      return id;
     }
   }
-  return false;
+  return InvalidSymbol;
+}
+bool SemanticAnalyzer::findBuiltinCloneAtCandidate(TypeId candidate,
+                                                   TypeId &result) {
+  const TypeInfo &info = types.get(candidate);
+  if (info.kind != TypeKind::Ref || info.refMut) {
+    return false;
+  }
+  std::unordered_set<int> visiting;
+  if (!supportsClone(info.inner, visiting)) {
+    return false;
+  }
+  result = info.inner;
+  return true;
+}
+int SemanticAnalyzer::findCloneMethod(TypeId receiver,
+                                      TypeId &selectedReceiver,
+                                      TypeId &result) {
+  std::vector<TypeId> candidates;
+  collectMethodCandidates(receiver, candidates);
+  for (TypeId candidate : candidates) {
+    int id = findUserMethodAtCandidate(candidate, "clone", selectedReceiver);
+    if (id != InvalidSymbol) {
+      return id;
+    }
+    if (findBuiltinCloneAtCandidate(candidate, result)) {
+      selectedReceiver = candidate;
+      return InvalidSymbol;
+    }
+  }
+  return InvalidSymbol;
 }
 bool SemanticAnalyzer::checkDerives() {
   bool allOk = true;
@@ -847,6 +872,46 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
   popScope();
   inReceiverMethod = false;
 }
+void SemanticAnalyzer::bindConstType(const ConstDecl &cd, int symbolId) {
+  if (cd.type == nullptr) {
+    error();
+    return;
+  }
+  bool ok = false;
+  TypeId type = resolveTypeId(*cd.type, ok);
+  if (ok) {
+    symbols[symbolId].type = type;
+  }
+}
+void SemanticAnalyzer::resolveConstTypes(const Crate &crate) {
+  for (const auto &item : crate.items) {
+    if (auto *cd = dynamic_cast<const ConstDecl *>(item.get())) {
+      auto it = valueTable.find(cd->name);
+      if (it != valueTable.end()) {
+        bindConstType(*cd, it->second);
+      }
+    } else if (auto *impl = dynamic_cast<const ImplDecl *>(item.get())) {
+      auto target = implTargets.find(impl);
+      if (target == implTargets.end()) {
+        continue;
+      }
+      int saved = currentStruct;
+      currentStruct = target->second;
+      auto table = assocTable.find(currentStruct);
+      if (table != assocTable.end()) {
+        for (const auto &member : impl->members) {
+          if (auto *cd = dynamic_cast<const ConstDecl *>(member.get())) {
+            auto sym = table->second.find(cd->name);
+            if (sym != table->second.end()) {
+              bindConstType(*cd, sym->second);
+            }
+          }
+        }
+      }
+      currentStruct = saved;
+    }
+  }
+}
 void SemanticAnalyzer::resolveCrate(const Crate &crate) {
   for (const auto &item : crate.items) {
     if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
@@ -870,15 +935,13 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
     }
   }
   resolveSignatures(crate);
+  resolveConstTypes(crate);
   for (const auto &item : crate.items) {
     if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
       resolveFunction(*fn, false);
     } else if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
       continue;
     } else if (auto *cd = dynamic_cast<const ConstDecl *>(item.get())) {
-      if (cd->type != nullptr) {
-        resolveType(*cd->type);
-      }
       auto it = valueTable.find(cd->name);
       if (it != valueTable.end()) {
         ConstVal val;
@@ -894,9 +957,6 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
         if (auto *fn = dynamic_cast<const FnDecl *>(member.get())) {
           resolveFunction(*fn, true);
         } else if (auto *cd = dynamic_cast<const ConstDecl *>(member.get())) {
-          if (cd->type != nullptr) {
-            resolveType(*cd->type);
-          }
           auto table = assocTable.find(currentStruct);
           if (table != assocTable.end()) {
             auto it = table->second.find(cd->name);
@@ -1356,6 +1416,107 @@ bool SemanticAnalyzer::isPlace(const Expr &e) {
   }
   return false;
 }
+bool SemanticAnalyzer::typeAllowsMutableAccess(TypeId t, bool ownerMutable) {
+  if (t == InvalidType) {
+    return true;
+  }
+  const TypeInfo &info = types.get(t);
+  if (info.kind == TypeKind::Ref) {
+    if (!info.refMut) {
+      return false;
+    }
+    return typeAllowsMutableAccess(info.inner, true);
+  }
+  if (info.kind == TypeKind::Box) {
+    return typeAllowsMutableAccess(info.inner, ownerMutable);
+  }
+  return ownerMutable;
+}
+bool SemanticAnalyzer::typeHasSharedBarrier(TypeId t) {
+  if (t == InvalidType) {
+    return false;
+  }
+  const TypeInfo &info = types.get(t);
+  if (info.kind == TypeKind::Ref) {
+    if (!info.refMut) {
+      return true;
+    }
+    return typeHasSharedBarrier(info.inner);
+  }
+  if (info.kind == TypeKind::Box) {
+    return typeHasSharedBarrier(info.inner);
+  }
+  return false;
+}
+bool SemanticAnalyzer::blocksStoredMutRef(const Expr &e) {
+  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
+    auto it = bindings.find(path);
+    if (it == bindings.end()) {
+      return true;
+    }
+    return typeHasSharedBarrier(symbols[it->second].type);
+  }
+  if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
+    auto base = exprTypes.find(field->receiver.get());
+    auto type = exprTypes.find(&e);
+    if (base == exprTypes.end() || type == exprTypes.end()) {
+      return true;
+    }
+    return typeHasSharedBarrier(base->second) ||
+           blocksStoredMutRef(*field->receiver) ||
+           typeHasSharedBarrier(type->second);
+  }
+  if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    auto base = exprTypes.find(index->base.get());
+    auto type = exprTypes.find(&e);
+    if (base == exprTypes.end() || type == exprTypes.end()) {
+      return true;
+    }
+    TypeId baseType = base->second;
+    if (typeHasSharedBarrier(baseType) ||
+        blocksStoredMutRef(*index->base)) {
+      return true;
+    }
+    TypeId container = autoDerefContainers(baseType);
+    if (container == InvalidType) {
+      return true;
+    }
+    const TypeInfo &info = types.get(container);
+    if (info.kind != TypeKind::Vec && info.kind != TypeKind::Array) {
+      return true;
+    }
+    if (info.kind == TypeKind::Vec && !isMutableAccess(*index->base)) {
+      return true;
+    }
+    return typeHasSharedBarrier(info.inner);
+  }
+  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    if (unary->op == UnaryOp::Ref) {
+      return true;
+    } else if (unary->op == UnaryOp::RefMut) {
+      return false;
+    } else if (unary->op == UnaryOp::Deref) {
+      auto operand = exprTypes.find(unary->operand.get());
+      if (operand == exprTypes.end()) {
+        return true;
+      }
+      return typeHasSharedBarrier(operand->second) ||
+             blocksStoredMutRef(*unary->operand);
+    }
+  }
+  if (auto *block = dynamic_cast<const BlockExpr *>(&e)) {
+    return block->tail != nullptr && blocksStoredMutRef(*block->tail);
+  }
+  if (auto *ifex = dynamic_cast<const IfExpr *>(&e)) {
+    if (ifex->then != nullptr && blocksStoredMutRef(*ifex->then)) {
+      return true;
+    }
+    return ifex->elseBranch != nullptr &&
+           blocksStoredMutRef(*ifex->elseBranch);
+  }
+  auto it = exprTypes.find(&e);
+  return it == exprTypes.end() || typeHasSharedBarrier(it->second);
+}
 bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
   if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
     auto it = bindings.find(path);
@@ -1369,20 +1530,43 @@ bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
     return symbols[it->second].mutableBinding;
   }
   if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
-    if (!isPlace(*field->receiver)) {
-      return true;
+    auto base = exprTypes.find(field->receiver.get());
+    if (base == exprTypes.end()) {
+      return false;
     }
-    return hasMutableContainerAccess(*field->receiver);
-  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
-    if (!isPlace(*index->base)) {
-      return true;
+    return !blocksStoredMutRef(*field->receiver) &&
+           isMutableAccess(*field->receiver);
+  }
+  if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    auto base = exprTypes.find(index->base.get());
+    if (base == exprTypes.end()) {
+      return false;
     }
-    return hasMutableContainerAccess(*index->base);
-  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    return !blocksStoredMutRef(*index->base) &&
+           isMutableAccess(*index->base);
+  }
+  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
     if (unary->op != UnaryOp::Deref) {
       return false;
     }
-    return isMutableAccess(e);
+    auto operand = exprTypes.find(unary->operand.get());
+    if (operand == exprTypes.end() || operand->second == InvalidType) {
+      return false;
+    }
+    const TypeInfo &info = types.get(operand->second);
+    if (info.kind == TypeKind::Ref) {
+      if (!info.refMut) {
+        return false;
+      }
+      return isMutableAccess(*unary->operand);
+    }
+    if (info.kind == TypeKind::Box) {
+      if (!isPlace(*unary->operand)) {
+        return true;
+      }
+      return isMutablePlace(*unary->operand);
+    }
+    return false;
   }
   return false;
 }
@@ -1393,89 +1577,92 @@ bool SemanticAnalyzer::isMutableAccess(const Expr &e) {
       return false;
     }
     int id = it->second;
-    if (symbols[id].mutableBinding) {
-      return true;
-    }
-    TypeId type = symbols[id].type;
-    if (type != InvalidType) {
-      const TypeInfo &info = types.get(type);
-      if (info.kind == TypeKind::Ref && info.refMut) {
-        return true;
-      }
-    }
-    return false;
-  } else if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
-    auto it = exprTypes.find(&e);
-    if (it != exprTypes.end() && it->second != InvalidType) {
-      const TypeInfo &info = types.get(it->second);
-      if (info.kind == TypeKind::Ref && info.refMut && pathAllowsStoredMutRef(*field->receiver)) {
-        return true;
-      }
-    }
-    if (!isPlace(*field->receiver)) {
-      return true;
-    }
-    return isMutableAccess(*field->receiver);
-  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
-    auto it = exprTypes.find(index->base.get());
-    if (it == exprTypes.end()) {
+    return typeAllowsMutableAccess(symbols[id].type,
+                                   symbols[id].mutableBinding);
+  }
+  if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
+    auto type = exprTypes.find(&e);
+    if (type == exprTypes.end()) {
       return false;
     }
-    TypeId id = it->second;
-    id = autoDerefContainers(id);
-    if (id == InvalidType) {
+    if (blocksStoredMutRef(*field->receiver)) {
       return false;
     }
-    const TypeInfo &info = types.get(id);
+    return typeAllowsMutableAccess(type->second,
+                                   isMutableAccess(*field->receiver));
+  }
+  if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
+    if (blocksStoredMutRef(*index->base)) {
+      return false;
+    }
+    auto base = exprTypes.find(index->base.get());
+    if (base == exprTypes.end() || base->second == InvalidType) {
+      return false;
+    }
+    TypeId container = autoDerefContainers(base->second);
+    if (container == InvalidType) {
+      return false;
+    }
+    const TypeInfo &info = types.get(container);
     if (info.kind == TypeKind::Vec) {
-      if (!isPlace(*index->base)) {
-        return true;
-      }
-      return hasMutableContainerAccess(*index->base);
-    } else if (info.kind == TypeKind::Array) {
-      const TypeInfo &inner_info = types.get(info.inner);
-      if (inner_info.kind == TypeKind::Ref && inner_info.refMut && pathAllowsStoredMutRef(*index->base)) {
-        return true;
-      }
-      if (!isPlace(*index->base)) {
-        return true;
-      }
-      return isMutableAccess(*index->base);
-    }
-    return false;
-  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
-    if (unary->op != UnaryOp::Deref) {
-      return false;
-    }
-    auto it = exprTypes.find(unary->operand.get());
-    if (it == exprTypes.end() || it->second == InvalidType) {
-      return false;
-    }
-    const TypeInfo &info = types.get(it->second);
-    if (info.kind == TypeKind::Ref) {
-      if (!info.refMut) {
+      if (!isMutableAccess(*index->base)) {
         return false;
-      } else if (!isPlace(*unary->operand)) {
-        return true;
-      } else {
-        return pathAllowsStoredMutRef(*unary->operand);
       }
-    } else if (info.kind == TypeKind::Box) {
-      if (!isPlace(*unary->operand)) {
-        return true;
-      }
-      return isMutableAccess(*unary->operand);
+      return typeAllowsMutableAccess(info.inner, true);
+    }
+    if (info.kind == TypeKind::Array) {
+      return typeAllowsMutableAccess(info.inner,
+                                     isMutableAccess(*index->base));
     }
     return false;
   }
-  return true;
+  if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
+    if (unary->op == UnaryOp::Ref) {
+      return false;
+    } else if (unary->op == UnaryOp::RefMut) {
+      return true;
+    } else if (unary->op != UnaryOp::Deref) {
+      auto it = exprTypes.find(&e);
+      return it != exprTypes.end() &&
+             typeAllowsMutableAccess(it->second, true);
+    }
+    auto operand = exprTypes.find(unary->operand.get());
+    if (operand == exprTypes.end() || operand->second == InvalidType ||
+        blocksStoredMutRef(*unary->operand)) {
+      return false;
+    }
+    const TypeInfo &info = types.get(operand->second);
+    if (info.kind == TypeKind::Ref) {
+      if (!info.refMut) {
+        return false;
+      }
+      return typeAllowsMutableAccess(info.inner, true);
+    }
+    if (info.kind == TypeKind::Box) {
+      return typeAllowsMutableAccess(info.inner,
+                                     isMutableAccess(*unary->operand));
+    }
+    return false;
+  }
+  if (blocksStoredMutRef(e)) {
+    return false;
+  }
+  auto it = exprTypes.find(&e);
+  if (it == exprTypes.end()) {
+    return true;
+  }
+  return typeAllowsMutableAccess(it->second, true);
 }
 bool SemanticAnalyzer::isCopyType(TypeId id) {
+  std::unordered_set<int> visiting;
+  return isCopyType(id, visiting);
+}
+bool SemanticAnalyzer::isCopyType(TypeId id, std::unordered_set<int> &visiting) {
   if (id == InvalidType) {
     return true;
   }
   const TypeInfo &info = types.get(id);
-  auto kind = info.kind;
+  TypeKind kind = info.kind;
   if (isIntType(id) || isBoolType(id) || isUnit(id)) {
     return true;
   } else if (kind == TypeKind::Ref) {
@@ -1485,23 +1672,30 @@ bool SemanticAnalyzer::isCopyType(TypeId id) {
   } else if (kind == TypeKind::Never) {
     return false;
   } else if (kind == TypeKind::Array) {
-    return isCopyType(info.inner);
+    return isCopyType(info.inner, visiting);
   } else if (kind == TypeKind::Struct) {
+    int sid = info.structId;
     const StructDecl *stru =
-        dynamic_cast<const StructDecl *>(symbols[info.structId].decl);
+        dynamic_cast<const StructDecl *>(symbols[sid].decl);
     if (stru == nullptr || !stru->derives.copy || !stru->derives.clone) {
       return false;
+    } else if (visiting.find(sid) != visiting.end()) {
+      return false;
     }
-    auto it = structFieldTypes.find(info.structId);
+    auto it = structFieldTypes.find(sid);
     if (it == structFieldTypes.end()) {
       return false;
     }
-    for (auto fieldtype : it->second) {
-      if (!isCopyType(fieldtype)) {
-        return false;
+    visiting.insert(sid);
+    bool ok = true;
+    for (TypeId fieldtype : it->second) {
+      if (!isCopyType(fieldtype, visiting)) {
+        ok = false;
+        break;
       }
     }
-    return true;
+    visiting.erase(sid);
+    return ok;
   }
   return false;
 }
@@ -1599,83 +1793,6 @@ void SemanticAnalyzer::checkLayouts() {
   }
 }
 
-bool SemanticAnalyzer::hasMutableContainerAccess(const Expr &base) {
-  if (isMutableAccess(base)) {
-    return true;
-  }
-  TypeId t = exprTypes[&base];
-  while (t != InvalidType) {
-    const TypeInfo &info = types.get(t);
-    if (info.kind == TypeKind::Ref) {
-      return info.refMut;
-    } else if (info.kind == TypeKind::Box) {
-      t = info.inner;
-      continue;
-    }
-    break;
-  }
-  return false;
-}
-bool SemanticAnalyzer::pathAllowsStoredMutRef(const Expr &e) {
-  if (auto *path = dynamic_cast<const PathExpr *>(&e)) {
-    auto it = bindings.find(path);
-    if (it == bindings.end()) {
-      error();
-      return false;
-    }
-    int id = it->second;
-    TypeId type = symbols[id].type;
-    if (type == InvalidType) {
-      return true;
-    }
-    const TypeInfo &info = types.get(type);
-    if (info.kind == TypeKind::Ref && !info.refMut) {
-      return false;
-    }
-    return true;
-  } else if (auto *field = dynamic_cast<const FieldAccessExpr *>(&e)) {
-    return pathAllowsStoredMutRef(*field->receiver);
-  } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
-    auto it = exprTypes.find(index->base.get());
-    if (it == exprTypes.end()) {
-      error();
-      return false;
-    }
-    TypeId type = it->second;
-    type = autoDerefContainers(type);
-    const TypeInfo &info = types.get(type);
-    if (info.kind == TypeKind::Vec) {
-      return hasMutableContainerAccess(*index->base);
-    } else if (info.kind == TypeKind::Array)  {
-      return pathAllowsStoredMutRef(*index->base);
-    } else {
-      return false;
-    }
-  } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&e)) {
-    if (unary->op != UnaryOp::Deref) {
-      return false;
-    }
-    auto it = exprTypes.find(unary->operand.get());
-    if (it == exprTypes.end()) {
-      error();
-      return false;
-    }
-    TypeId type = it->second;
-    const TypeInfo &info = types.get(type);
-    if (info.kind == TypeKind::Ref) {
-      if (!info.refMut) {
-        return false;
-      }
-      return pathAllowsStoredMutRef(*unary->operand);
-    } else if (info.kind == TypeKind::Box) {
-      return pathAllowsStoredMutRef(*unary->operand);
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
 bool SemanticAnalyzer::isCoercible(TypeId from, TypeId to) {
   if (from == InvalidType || to == InvalidType || from == to || isNever(from)) {
     return true;
@@ -1714,7 +1831,9 @@ bool SemanticAnalyzer::checkCoercion(const Expr &expr, TypeId from, TypeId to) {
   }
   const TypeInfo &frominfo = types.get(from);
   const TypeInfo &toinfo = types.get(to);
-  if (frominfo.kind == TypeKind::Ref && toinfo.kind == TypeKind::Ref && frominfo.refMut && toinfo.refMut && isPlace(expr) && !pathAllowsStoredMutRef(expr)) {
+  if (frominfo.kind == TypeKind::Ref && toinfo.kind == TypeKind::Ref &&
+      frominfo.refMut && toinfo.refMut && isPlace(expr) &&
+      !isMutableAccess(expr)) {
     error();
     return false;
   }
@@ -2244,10 +2363,12 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         }
       }
     } else {
+      error();
       infer(*call->callee, InvalidType);
       for (auto &arg : call->args) {
         infer(*arg, InvalidType);
       }
+      res = InvalidType;
     }
   } else if (auto array = dynamic_cast<const ArrayLit *>(&expr)) {
     bool array_expected = (expected != InvalidType &&
@@ -2345,7 +2466,13 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
       res = InvalidType;
     } else {
       TypeId selectedReceiver = InvalidType;
-      int id = findUserMethod(receiver, method->method, selectedReceiver);
+      TypeId cloneType = InvalidType;
+      int id = InvalidSymbol;
+      if (method->method == "clone") {
+        id = findCloneMethod(receiver, selectedReceiver, cloneType);
+      } else {
+        id = findUserMethod(receiver, method->method, selectedReceiver);
+      }
       if (id != InvalidSymbol) {
         const TypeInfo &sel = types.get(selectedReceiver);
         if (sel.kind == TypeKind::Ref && sel.refMut && !isMutableAccess(*method->receiver)) {
@@ -2354,74 +2481,74 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         checkCallArgs(id, method->args, 1);
         auto it = fnReturnTypes.find(id);
         res = (it != fnReturnTypes.end()) ? it->second : InvalidType;
+      } else if (cloneType != InvalidType) {
+        if (!method->args.empty()) {
+          error();
+          for (auto &arg : method->args) {
+            infer(*arg, InvalidType);
+          }
+        }
+        res = cloneType;
       } else {
-        TypeId cloneType = InvalidType;
-        if (method->method == "clone" && findBuiltinClone(receiver, cloneType)) {
+        TypeId base = autoDerefContainers(receiver);
+        TypeKind kind = types.get(base).kind;
+        TypeId elem = InvalidType;
+        if (kind == TypeKind::Array || kind == TypeKind::Vec || kind == TypeKind::Box) {
+          elem = types.get(base).inner;
+        }
+        TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
+        bool matched = false;
+        if (method->method == "len" &&
+            (kind == TypeKind::Array || kind == TypeKind::Vec)) {
           if (!method->args.empty()) {
             error();
-            for (auto &arg : method->args) {
-              infer(*arg, InvalidType);
-            }
           }
-          res = cloneType;
-        } else {
-          TypeId base = autoDerefContainers(receiver);
-          TypeKind kind = types.get(base).kind;
-          TypeId elem = InvalidType;
-          if (kind == TypeKind::Array || kind == TypeKind::Vec || kind == TypeKind::Box) {
-            elem = types.get(base).inner;
-          }
-          TypeId usizeT = types.intern(TypeInfo{TypeKind::Usize});
-          bool matched = false;
-          if (method->method == "len" &&
-              (kind == TypeKind::Array || kind == TypeKind::Vec)) {
-            if (!method->args.empty()) {
-              error();
-            }
-            res = usizeT;
-            matched = true;
-          } else if (method->method == "is_empty" && kind == TypeKind::Vec) {
-            if (!method->args.empty()) {
-              error();
-            }
-            res = types.intern(TypeInfo{TypeKind::Bool});
-            matched = true;
-          } else if (method->method == "push" && kind == TypeKind::Vec) {
-            if (!isMutableAccess(*method->receiver)) {
-              error();
-            } else if (method->args.size() != 1) {
-              error();
-            } else {
-              TypeId a = infer(*method->args[0], elem);
-              if (a != InvalidType && elem != InvalidType && a != elem) error();
-            }
-            res = unitType();
-            matched = true;
-          } else if (method->method == "remove" && kind == TypeKind::Vec) {
-            if (!isMutableAccess(*method->receiver)) {
-              error();
-            } else if (method->args.size() != 1) {
-              error();
-            } else {
-              TypeId a = infer(*method->args[0], usizeT);
-              if (a != InvalidType && types.get(a).kind != TypeKind::Usize) error();
-            }
-            res = elem;
-            matched = true;
-          }
-          if (!matched) {
-            for (auto &arg : method->args) infer(*arg, InvalidType);
+          res = usizeT;
+          matched = true;
+        } else if (method->method == "is_empty" && kind == TypeKind::Vec) {
+          if (!method->args.empty()) {
             error();
-            res = InvalidType;
           }
+          res = types.intern(TypeInfo{TypeKind::Bool});
+          matched = true;
+        } else if (method->method == "push" && kind == TypeKind::Vec) {
+          if (!isMutableAccess(*method->receiver)) {
+            error();
+          } else if (method->args.size() != 1) {
+            error();
+          } else {
+            TypeId a = infer(*method->args[0], elem);
+            if (a != InvalidType && elem != InvalidType && a != elem) error();
+          }
+          res = unitType();
+          matched = true;
+        } else if (method->method == "remove" && kind == TypeKind::Vec) {
+          if (!isMutableAccess(*method->receiver)) {
+            error();
+          } else if (method->args.size() != 1) {
+            error();
+          } else {
+            TypeId a = infer(*method->args[0], usizeT);
+            if (a != InvalidType && types.get(a).kind != TypeKind::Usize) error();
+          }
+          res = elem;
+          matched = true;
+        }
+        if (!matched) {
+          for (auto &arg : method->args) infer(*arg, InvalidType);
+          error();
+          res = InvalidType;
         }
       }
     }
   } else if (auto stru = dynamic_cast<const StructLit *>(&expr)) {
     int structId = InvalidSymbol;
-    if (!stru->path.empty()) {
+    bool pathOk = stru->path.size() == 1;
+    if (pathOk) {
       const PathSegment &first = stru->path[0];
-      if (first.kind == PathSegmentKind::SelfType) {
+      if (!first.genericArgs.empty()) {
+        pathOk = false;
+      } else if (first.kind == PathSegmentKind::SelfType) {
         if (currentStruct != InvalidSymbol) {
           structId = currentStruct;
         }
@@ -2433,7 +2560,7 @@ TypeId SemanticAnalyzer::infer(const Expr &expr, TypeId expected) {
         }
       }
     }
-    if (structId == InvalidSymbol) {
+    if (!pathOk || structId == InvalidSymbol) {
       error();
       res = InvalidType;
     } else {

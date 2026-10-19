@@ -1,0 +1,20 @@
+use rx::core::*;
+
+struct S {
+    x: i32,
+}
+
+struct H {
+    r: &S,
+}
+
+fn update(mut h: H) {
+    h.r.x = 1;
+}
+
+fn main() {
+    let s = S { x: 0 };
+    let h = H { r: &s };
+    update(h);
+    println_i32(s.x);
+}

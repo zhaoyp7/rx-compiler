@@ -106,5 +106,53 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "A recursive Vec field prevents Copy."
+  },
+  {
+    "source": "acc-clone-box-struct.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Calling clone on Box<S> returns Box<S> when S derives Clone."
+  },
+  {
+    "source": "acc-clone-double-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Calling clone on &&S returns the earlier shared-reference candidate."
+  },
+  {
+    "source": "acc-clone-box-shared-ref.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "Calling clone on Box<&S> clones the Box, not the inner struct."
+  },
+  {
+    "source": "rej-clone-inner-struct-type.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "clone on Box<S> and &&S must not be typed as the inner struct."
+  },
+  {
+    "source": "rej-recursive-inline-copy.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Copy on an inline recursive struct must be rejected, not crash."
+  },
+  {
+    "source": "rej-recursive-array-copy.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Copy on an inline recursive array must be rejected, not crash."
+  },
+  {
+    "source": "rej-mutual-recursive-copy.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Copy on mutually recursive inline structs must be rejected, not crash."
+  },
+  {
+    "source": "rej-recursive-repeat-copy.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Array repeat must not recurse forever while checking Copy on an inline recursive struct."
   }
 ]

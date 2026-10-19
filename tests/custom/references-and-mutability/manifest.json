@@ -112,5 +112,83 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "Struct field initialization checks the declared reference type."
+  },
+  {
+    "source": "rej-mut-binding-shared-ref.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A mutable binding holding a shared reference cannot write through it or call mutable methods."
+  },
+  {
+    "source": "rej-shared-temp-field-method.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Field writes and mutable methods through a temporary shared reference must be rejected."
+  },
+  {
+    "source": "rej-shared-field-through-mutable-owner.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A mutable owner does not make a shared-reference field writable through."
+  },
+  {
+    "source": "rej-shared-field-chain.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Stored mutable-reference access is blocked when an intermediate field is a shared reference."
+  },
+  {
+    "source": "rej-shared-outer-mut-ref.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A shared outer reference blocks mutable access through a stored mutable reference."
+  },
+  {
+    "source": "rej-vec-shared-element.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A mutable Vec does not make a shared-reference element writable through."
+  },
+  {
+    "source": "rej-array-shared-element.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A mutable array does not make a shared-reference element writable through."
+  },
+  {
+    "source": "rej-box-shared-element.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "A Box around a shared reference does not make its target writable."
+  },
+  {
+    "source": "acc-box-mut-ref-method.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A stored mutable reference in an immutable Box supports mutable method receivers."
+  },
+  {
+    "source": "acc-box-mut-ref-nested-field.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A stored mutable reference in an immutable Box supports nested field assignment."
+  },
+  {
+    "source": "acc-box-mut-ref-vec-push.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A stored mutable Vec reference in an immutable Box supports push."
+  },
+  {
+    "source": "acc-mut-ref-temp-method.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A temporary mutable reference can be a mutable method receiver."
+  },
+  {
+    "source": "acc-mut-ref-temp-vec-push.rx",
+    "stage": "semantic",
+    "compilation_success": true,
+    "description": "A temporary mutable reference can call Vec::push."
   }
 ]

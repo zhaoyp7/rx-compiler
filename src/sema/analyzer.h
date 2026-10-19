@@ -77,7 +77,11 @@ private:
   bool isPlace(const Expr &e);
   bool isMutablePlace(const Expr &e);
   bool isMutableAccess(const Expr &e);
+  bool typeAllowsMutableAccess(TypeId t, bool ownerMutable);
+  bool typeHasSharedBarrier(TypeId t);
+  bool blocksStoredMutRef(const Expr &e);
   bool isCopyType(TypeId t);
+  bool isCopyType(TypeId t, std::unordered_set<int> &visiting);
   TypeId autoDerefContainers(TypeId t);
   bool isUnit(TypeId t);
   bool isNever(TypeId t);
@@ -98,12 +102,18 @@ private:
   void bindLocal(const std::string &name, int id);
 
   void resolveCrate(const Crate &crate);
+  void resolveConstTypes(const Crate &crate);
+  void bindConstType(const ConstDecl &cd, int symbolId);
   void resolveSignatures(const Crate &crate);
   void resolveSignature(const FnDecl &fn, int symbolId, int owner);
   void bindSelf(const FnDecl &fn, int symbolId);
   bool checkCallArgs(int symbolId, const std::vector<ExprPtr> &args, size_t startParam = 0);
+  void collectMethodCandidates(TypeId receiver, std::vector<TypeId> &candidates);
+  int findUserMethodAtCandidate(TypeId candidate, const std::string &name,
+                                TypeId &selectedReceiver);
   int findUserMethod(TypeId receiver, const std::string &name, TypeId &selectedReceiver);
-  bool findBuiltinClone(TypeId receiver, TypeId &result);
+  bool findBuiltinCloneAtCandidate(TypeId candidate, TypeId &result);
+  int findCloneMethod(TypeId receiver, TypeId &selectedReceiver, TypeId &result);
   bool checkDerives();
   bool supportsClone(TypeId t, std::unordered_set<int> &visiting);
   bool supportsPartialEq(TypeId t, std::unordered_set<int> &visiting);
@@ -130,11 +140,9 @@ private:
   void checkLayouts();
   bool typeSizeAlign(TypeId id, uint32_t &size, uint32_t &align);
 
-  bool pathAllowsStoredMutRef(const Expr &e);
   bool isCoercible(TypeId from, TypeId to);
   bool checkCoercion(const Expr &expr, TypeId from, TypeId to);
   bool checkOrderingOperands(TypeId left, TypeId right);
-  bool hasMutableContainerAccess(const Expr &base);
 };
 
 } // namespace rx

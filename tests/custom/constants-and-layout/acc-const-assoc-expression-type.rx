@@ -1,0 +1,18 @@
+use rx::core::*;
+
+struct S {
+    x: i32,
+}
+
+impl S {
+    const N: u32 = 1;
+
+    fn value(&self) -> u32 {
+        Self::N
+    }
+}
+
+fn main() {
+    let s = S { x: 0 };
+    println_i32(s.value() as i32);
+}

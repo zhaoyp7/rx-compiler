@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn main() {
+    let x: bool = N;
+    println_i32(x as i32);
+}
+
+const N: i32 = 1;

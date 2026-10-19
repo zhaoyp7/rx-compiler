@@ -1,0 +1,13 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct A {
+    b: B,
+}
+
+#[derive(Clone, Copy)]
+struct B {
+    a: A,
+}
+
+fn main() {}

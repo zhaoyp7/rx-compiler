@@ -1,0 +1,7 @@
+use rx::core::*;
+
+const N: u32<i32> = 1;
+
+fn main() {
+    println_i32(N as i32);
+}
