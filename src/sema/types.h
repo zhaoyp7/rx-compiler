@@ -52,7 +52,6 @@ public:
   void clear();
   TypeId intern(const TypeInfo &info);
   const TypeInfo &get(TypeId id) const;
-  std::string toString(TypeId id) const;
 
 private:
   std::vector<TypeInfo> types;

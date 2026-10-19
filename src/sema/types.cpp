@@ -32,38 +32,5 @@ const TypeInfo &TypeArena::get(TypeId id) const {
   }
   return types[id];
 }
-std::string TypeArena::toString(TypeId id) const {
-  if (id < 0 || id >= (int)types.size()) {
-    return "<invalid>";
-  }
-  TypeInfo info = get(id);
-  TypeKind kind = info.kind;
-  if (kind == TypeKind::I32) {
-    return "i32";
-  } else if (kind == TypeKind::U32) {
-    return "u32";
-  } else if (kind == TypeKind::Isize) {
-    return "isize";
-  } else if (kind == TypeKind::Usize) {
-    return "usize";
-  } else if (kind == TypeKind::Bool) {
-    return "bool";
-  } else if (kind == TypeKind::Unit) {
-    return "()";
-  } else if (kind == TypeKind::Never) {
-    return "!";
-  } else if (kind == TypeKind::Ref) {
-    return (info.refMut ? "&mut " : "&") + toString(info.inner);
-  } else if (kind == TypeKind::Array) {
-    return "[" + toString(info.inner) + "; " + std::to_string(info.len) + "]";
-  } else if (kind == TypeKind::Struct) {
-    return "struct#" + std::to_string(info.structId);
-  } else if (kind == TypeKind::Box) {
-    return "Box<" + toString(info.inner) + ">";
-  } else if (kind == TypeKind::Vec) {
-    return "Vec<" + toString(info.inner) + ">";
-  }
-  return "<invalid>";
-}
 
 } // namespace rx

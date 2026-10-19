@@ -49,18 +49,16 @@ private:
   std::unordered_map<const ImplDecl *, int> implTargets;
 
   int currentStruct = InvalidSymbol;
-  bool inReceiverMethod = false;
   bool failed = false;
 
   std::unordered_map<int, ConstVal> constValues;
-  std::unordered_map<int, int> constState; // 0 未访问 1 正在求值 2 完成
+  std::unordered_map<int, int> constState;
 
   TypeArena types;
   std::unordered_map<int, std::vector<TypeId>> structFieldTypes;
   std::unordered_map<int, std::unordered_map<std::string, TypeId>> structFieldMap;
   std::unordered_map<int, StructLayout> structLayouts;
-  std::unordered_map<int, int> layoutState; // 0 未访问 1 正在求值 2 成功 3 失败
-
+  std::unordered_map<int, int> layoutState;
   std::unordered_map<const Expr *, TypeId> exprTypes;
 
   TypeId currentReturnType = InvalidType;
@@ -68,36 +66,15 @@ private:
 
   int addSymbol(const std::string &name, SymbolKind kind, SourceSpan span,
                 const Node *decl);
-  bool hasSelfParam(const FnDecl &fn);
-  bool isIntType(TypeId t);
-  bool isSignedType(TypeId t);
-  bool isBoolType(TypeId t);
-  TypeId stripSharedRef(TypeId t);
-  bool typesCompatible(TypeId a, TypeId b);
-  bool isPlace(const Expr &e);
-  bool isMutablePlace(const Expr &e);
-  bool isMutableAccess(const Expr &e);
-  bool typeAllowsMutableAccess(TypeId t, bool ownerMutable);
-  bool typeHasSharedBarrier(TypeId t);
-  bool blocksStoredMutRef(const Expr &e);
-  bool isCopyType(TypeId t);
-  bool isCopyType(TypeId t, std::unordered_set<int> &visiting);
-  TypeId autoDerefContainers(TypeId t);
-  bool isUnit(TypeId t);
-  bool isNever(TypeId t);
-  bool isUnitCompatible(TypeId t);
-  TypeId unitType();
-  TypeId neverType();
-  TypeId joinTypes(TypeId a, TypeId b);
   void error();
   void pushScope();
   void popScope();
+  bool hasSelfParam(const FnDecl &fn);
 
   void registerBuiltins();
   void registerBuiltinSignatures();
   void collectCrate(const Crate &crate);
   void checkEntry();
-
   int lookupValue(const std::string &name);
   void bindLocal(const std::string &name, int id);
 
@@ -107,24 +84,6 @@ private:
   void resolveSignatures(const Crate &crate);
   void resolveSignature(const FnDecl &fn, int symbolId, int owner);
   void bindSelf(const FnDecl &fn, int symbolId);
-  bool checkCallArgs(int symbolId, const std::vector<ExprPtr> &args, size_t startParam = 0);
-  void collectMethodCandidates(TypeId receiver, std::vector<TypeId> &candidates);
-  int findUserMethodAtCandidate(TypeId candidate, const std::string &name,
-                                TypeId &selectedReceiver);
-  int findUserMethod(TypeId receiver, const std::string &name, TypeId &selectedReceiver);
-  bool findBuiltinCloneAtCandidate(TypeId candidate, TypeId &result);
-  int findCloneMethod(TypeId receiver, TypeId &selectedReceiver, TypeId &result);
-  bool checkDerives();
-  bool supportsClone(TypeId t, std::unordered_set<int> &visiting);
-  bool supportsPartialEq(TypeId t, std::unordered_set<int> &visiting);
-  bool supportsEq(TypeId t, std::unordered_set<int> &visiting);
-  int getDerivedClone(int structId);
-  void resolveFunction(const FnDecl &fn, bool inImpl);
-  void resolveType(const TypeSyntax &type);
-  TypeId resolveBlock(const BlockExpr &block, TypeId expected = InvalidType);
-  bool resolveStmt(const Stmt &stmt);
-  void resolveExpr(const Expr &expr);
-  int resolvePath(const PathExpr &path);
 
   bool calcConstValue(const ConstValue &cv, ConstVal &out);
   bool calcConstValue(const ConstValue &cv, ConstType expected, ConstVal &out);
@@ -134,15 +93,83 @@ private:
   ConstType typeFromSyntax(const TypeSyntax &type, bool &ok);
 
   TypeId resolveTypeId(const TypeSyntax &type, bool &ok);
-  TypeId infer(const Expr &expr, TypeId expected = InvalidType);
-  std::string typeToString(TypeId id) const;
+  bool isIntType(TypeId t);
+  bool isSignedType(TypeId t);
+  bool isBoolType(TypeId t);
+  bool isUnit(TypeId t);
+  bool isNever(TypeId t);
+  bool isUnitCompatible(TypeId t);
+  TypeId unitType();
+  TypeId neverType();
+  TypeId stripSharedRef(TypeId t);
+  TypeId joinTypes(TypeId a, TypeId b);
+
+  bool isPlace(const Expr &e);
+  bool typeAllowsMutableAccess(TypeId t, bool ownerMutable);
+  bool typeHasSharedBarrier(TypeId t);
+  bool blocksStoredMutRef(const Expr &e);
+  bool isMutablePlace(const Expr &e);
+  bool isMutableAccess(const Expr &e);
+  TypeId autoDerefContainers(TypeId t);
+  bool isCopyType(TypeId t);
+  bool isCopyType(TypeId t, std::unordered_set<int> &visiting);
+
+  bool typeSizeAlign(TypeId id, uint32_t &size, uint32_t &align);
   bool layoutStruct(int id);
   void checkLayouts();
-  bool typeSizeAlign(TypeId id, uint32_t &size, uint32_t &align);
 
   bool isCoercible(TypeId from, TypeId to);
   bool checkCoercion(const Expr &expr, TypeId from, TypeId to);
   bool checkOrderingOperands(TypeId left, TypeId right);
+
+  bool checkCallArgs(int symbolId, const std::vector<ExprPtr> &args,
+                     size_t startParam = 0);
+  void collectMethodCandidates(TypeId receiver, std::vector<TypeId> &candidates);
+  int findUserMethodAtCandidate(TypeId candidate, const std::string &name,
+                                TypeId &selectedReceiver);
+  int findUserMethod(TypeId receiver, const std::string &name,
+                     TypeId &selectedReceiver);
+  bool findBuiltinCloneAtCandidate(TypeId candidate, TypeId &result);
+  int findCloneMethod(TypeId receiver, TypeId &selectedReceiver,
+                      TypeId &result);
+
+  bool checkDerives();
+  bool supportsClone(TypeId id, std::unordered_set<int> &visiting);
+  bool supportsPartialEq(TypeId id, std::unordered_set<int> &visiting);
+  bool supportsEq(TypeId id, std::unordered_set<int> &visiting);
+  int getDerivedClone(int structId);
+
+  int resolvePath(const PathExpr &path);
+  bool resolveStmt(const Stmt &stmt);
+  TypeId resolveBlock(const BlockExpr &block, TypeId expected = InvalidType);
+  void resolveFunction(const FnDecl &fn, bool inImpl);
+
+  TypeId infer(const Expr &expr, TypeId expected = InvalidType);
+  TypeId inferIntLit(const IntLit &lit, TypeId expected);
+  TypeId inferBoolLit();
+  TypeId inferUnitLit();
+  TypeId inferPath(const PathExpr &path);
+  TypeId inferCast(const CastExpr &cast);
+  TypeId inferIf(const IfExpr &ifex, TypeId expected);
+  TypeId inferLoop(const LoopExpr &loop, TypeId expected);
+  TypeId inferWhile(const WhileExpr &whileex);
+  TypeId inferBreak(const BreakExpr &breakex);
+  TypeId inferContinue(const ContinueExpr &continueex);
+  TypeId inferReturn(const ReturnExpr &returnex);
+  TypeId inferBinary(const BinaryExpr &binary);
+  TypeId inferAssign(const AssignExpr &assign);
+  TypeId inferUnary(const UnaryExpr &unary);
+  TypeId inferIndex(const IndexExpr &ix);
+  TypeId inferCall(const CallExpr &call);
+  bool tryInferBuiltinCall(const CallExpr &call, const PathExpr &path,
+                           TypeId &result);
+  TypeId inferArrayLit(const ArrayLit &array, TypeId expected);
+  TypeId inferArrayRepeat(const ArrayRepeat &array, TypeId expected);
+  TypeId inferFieldAccess(const FieldAccessExpr &field);
+  TypeId inferMethodCall(const MethodCallExpr &method);
+  bool tryInferBuiltinMethodCall(const MethodCallExpr &method, TypeId receiver,
+                                 TypeId &result);
+  TypeId inferStructLit(const StructLit &stru);
 };
 
 } // namespace rx
