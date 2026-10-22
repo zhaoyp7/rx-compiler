@@ -1,3 +1,4 @@
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -10,6 +11,7 @@
 
 #include "ast/builder.h"
 #include "ast/dump.h"
+#include "ir/generator.h"
 #include "sema/analyzer.h"
 
 int main(int argc, char** argv) {
@@ -59,6 +61,33 @@ int main(int argc, char** argv) {
         }
         rx::SemanticAnalyzer analyzer;
         return analyzer.run(result.crate) ? 0 : 1;
+    }
+    if (options->stage == "ir") {
+        if (!options->hasOutput) {
+            std::cerr << "--stage ir requires -o <output>\n";
+            return 1;
+        }
+        rx::ASTBuilder builder;
+        rx::BuildResult result = builder.build(tree);
+        if (!result.ok) {
+            return 1;
+        }
+        rx::SemanticAnalyzer analyzer;
+        if (!analyzer.run(result.crate)) {
+            return 1;
+        }
+        std::ofstream output(options->output, std::ios::binary);
+        if (!output) {
+            std::cerr << "cannot open output file: " << options->output << "\n";
+            return 1;
+        }
+        rx::IrGenerator generator(result.crate, analyzer);
+        if (!generator.generate(output)) {
+            std::cerr << "failed to generate IR\n";
+            return 1;
+        }
+        output.flush();
+        return output ? 0 : 1;
     }
     return 1;
 }
