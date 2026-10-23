@@ -2646,4 +2646,41 @@ TypeId SemanticAnalyzer::inferStructLit(const StructLit &stru) {
   return res;
 }
 
+int SemanticAnalyzer::fnSymbol(const FnDecl &fn) const {
+  auto it = fnSymbols.find(&fn);
+  if (it == fnSymbols.end()) {
+    return InvalidSymbol;
+  }
+  return it->second;
+}
+const std::vector<TypeId> *SemanticAnalyzer::paramTypes(int symbol) const {
+  auto it = fnParamTypes.find(symbol);
+  if (it == fnParamTypes.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+TypeId SemanticAnalyzer::returnType(int symbol) const {
+  auto it = fnReturnTypes.find(symbol);
+  if (it == fnReturnTypes.end()) {
+    return InvalidType;
+  }
+  return it->second;
+}
+const TypeArena &SemanticAnalyzer::typeArena() const {
+  return types;
+}
+const Symbol *SemanticAnalyzer::symbol(int id) const {
+  if (id <= 0 || id >= (int) symbols.size()) {
+    return nullptr;
+  }
+  return &symbols[id];
+}
+const std::vector<TypeId> *SemanticAnalyzer::structFields(int structId) const {
+  auto it = structFieldTypes.find(structId);
+  if (it == structFieldTypes.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
 } // namespace rx

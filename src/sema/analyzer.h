@@ -30,6 +30,12 @@ struct ConstVal {
 class SemanticAnalyzer {
 public:
   bool run(const Crate &crate);
+  int fnSymbol(const FnDecl &fn) const;
+  const std::vector<TypeId> *paramTypes(int symbol) const;
+  TypeId returnType(int symbol) const;
+  const TypeArena &typeArena() const;
+  const Symbol *symbol(int id) const;
+  const std::vector<TypeId> *structFields(int structId) const;
 
 private:
   std::vector<Symbol> symbols;
