@@ -1,8 +1,11 @@
 #include "ir/generator.h"
 
+#include <iostream>
 #include <ostream>
 
 #include "ast/ast.h"
+#include "ir/ir.h"
+#include "ir/type.h"
 #include "sema/analyzer.h"
 
 namespace rx {
@@ -11,21 +14,45 @@ IrGenerator::IrGenerator(const Crate &crate, const SemanticAnalyzer &analyzer)
     : crate(crate), analyzer(analyzer) {}
 
 bool IrGenerator::generate(std::ostream &out) {
-  out << "target triple = \"riscv32-unknown-elf\"\n";
-  out << "target datalayout = \"e-m:e-p:32:32-i64:64-n32-S128\"\n\n";
+  ir::Module module;
+  ir::TypeMapper types(analyzer);
 
-  // TODO(I1): lower the source functions in `crate` using `analyzer`.
-  out << "define i32 @main() {\n";
-  out << "entry:\n";
-  out << "  call void @rx_main()\n";
-  out << "  ret i32 0\n";
-  out << "}\n\n";
+  for (const auto &item : crate.items) {
+    auto *fn = dynamic_cast<const FnDecl *>(item.get());
+    if (fn == nullptr || fn->name == "main") {
+      continue;
+    }
+    int symbol = analyzer.fnSymbol(*fn);
+    if (symbol == InvalidSymbol) {
+      return false;
+    }
+    TypeId res = analyzer.returnType(symbol);
+    const std::vector<TypeId> *params = analyzer.paramTypes(symbol);
+    if (params == nullptr) {
+      return false;
+    }
+    if (!types.declare(res, module)) {
+      return false;
+    }
+    std::vector<std::string> paramTypes;
+    for (TypeId param : *params) {
+      if (!types.declare(param, module)) {
+        return false;
+      }
+      paramTypes.push_back(types.valueType(param));
+    }
 
-  out << "define void @rx_main() {\n";
-  out << "entry:\n";
-  out << "  ret void\n";
-  out << "}\n";
-  return static_cast<bool>(out);
+    module.addDeclaration("_rx_fn_" + fn->name,
+                          types.valueType(res),
+                          paramTypes);
+  }
+  module.addSourceMain();
+  module.addEntryWrapper();
+  if (!module.print(out)) {
+    std::cerr << "failed to emit a valid IR module\n";
+    return false;
+  }
+  return true;
 }
 
 } // namespace rx
