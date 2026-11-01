@@ -1,17 +1,32 @@
 #include "ir/ir.h"
 
-#include <cstddef>
-#include <utility>
-
 namespace rx::ir {
 
-void printParams(std::ostream &out, const std::vector<std::string> &params) {
+void printParams(std::ostream &out, const std::vector<FunctionParam> &params, bool withNames) {
   out << "(";
   for (std::size_t i = 0; i < params.size(); ++i) {
     if (i != 0) {
       out << ", ";
     }
-    out << params[i];
+    out << params[i].type;
+    if (withNames) {
+      out << " %";
+      if (params[i].name.empty()) {
+        out << "arg" << i;
+      } else {
+        out << params[i].name;
+      }
+    }
+  }
+  out << ")";
+}
+void printStringList(std::ostream &out, const std::vector<std::string> &items) {
+  out << "(";
+  for (std::size_t i = 0; i < items.size(); ++i) {
+    if (i != 0) {
+      out << ", ";
+    }
+    out << items[i];
   }
   out << ")";
 }
@@ -28,14 +43,35 @@ void printFields(std::ostream &out, const std::vector<std::string> &fields) {
 }
 void Instruction::print(std::ostream &out) const {
   if (kind == Kind::RET) {
-    if (hasRetValue) {
-      out << "  ret " << type << " " << retValue << "\n";
-    } else {
-      out << "  ret void\n";
+    out << "  ret " << type;
+    if (!operands.empty()) {
+      out << ' ' << operands[0];
     }
+    out << '\n';
   } else if (kind == Kind::CALL) {
-    out << "  call " << type << " @" << callee << "()\n";
+    out << "  ";
+    if (!result.empty()) {
+      out << result << " = ";
+    }
+    out << "call " << type << " @" << op;
+    printStringList(out, operands);
+    out << "\n";
+  } else if (kind == Kind::ALLOCA) {
+    out << "  " << result << " = alloca " << type << "\n";
+  } else if (kind == Kind::LOAD) {
+    out << "  " << result << " = load " << type << ", ptr " << operands[0] << "\n";
+  } else if (kind == Kind::STORE) {
+    out << "  store " << type << " " << operands[0] << ", ptr " << operands[1] << "\n";
+  } else if (kind == Kind::BINARY) {
+    out << "  " << result << " = " << op << " " << type << " " << operands[0] << ", " << operands[1] << "\n";
+  } else if (kind == Kind::ICMP) {
+    out << "  " << result << " = icmp " << op << " " << type << " " << operands[0] << ", " << operands[1] << "\n";
+  } else if (kind == Kind::CAST) {
+    out << "  " << result << " = " << op << " " << type << " " << operands[0] << " to " << operands[1] << "\n";
   }
+}
+bool Instruction::isTerminator() const {
+  return (kind == Kind::RET);
 }
 bool BasicBlock::validate() const {
   if (label.empty() || insts.empty()) {
@@ -58,7 +94,13 @@ void BasicBlock::print(std::ostream &out) const {
 bool Function::validate() const {
   if (name == "" || returnType == "") {
     return false;
-  } else if (isDeclaration) {
+  } 
+  for (const auto &param : params) {
+    if (param.type.empty()) {
+      return false;
+    }
+  }
+  if (isDeclaration) {
     return true;
   } else if (blocks.empty()) {
     return false;
@@ -76,11 +118,11 @@ bool Function::print(std::ostream &out) const {
   }
   if (isDeclaration) {
     out << "declare " << returnType << " @" << name;
-    printParams(out, paramTypes);
+    printParams(out, params, false);
     out << "\n";
   } else {
     out << "define " << returnType << " @" << name;
-    printParams(out, paramTypes);
+    printParams(out, params, true);
     out << " {\n";
     for (const auto &block : blocks) {
       block.print(out);
@@ -134,15 +176,15 @@ bool Module::print(std::ostream &out) const {
   }
   return !out.fail();
 }
-Function &Module::addFunction(const std::string &name, const std::string &returnType, const std::vector<std::string> &params) {
+Function &Module::addFunction(const std::string &name, const std::string &returnType, const std::vector<FunctionParam> &params) {
   Function fn;
   fn.name = name;
   fn.returnType = returnType;
-  fn.paramTypes = params;
+  fn.params = params;
   functions.push_back(std::move(fn));
   return functions.back();
 }
-void Module::addDeclaration(const std::string &name, const std::string &returnType, const std::vector<std::string> &params) {
+void Module::addDeclaration(const std::string &name, const std::string &returnType, const std::vector<FunctionParam> &params) {
   Function &fn = addFunction(name, returnType, params);
   fn.isDeclaration = true;
 }

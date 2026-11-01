@@ -10,25 +10,32 @@ namespace rx::ir {
 inline constexpr const char *SourceMain = "_rx_main";
 inline constexpr const char *EntryMain = "main";
 
+struct FunctionParam {
+  std::string type;
+  std::string name;
+};
 struct NamedType {
   std::string name;
   std::vector<std::string> fields;
 };
 struct Instruction {
-  enum class Kind { RET, CALL } kind = Kind::RET;
+  enum class Kind{RET, CALL, ALLOCA, LOAD, STORE, BINARY, ICMP, CAST};
+  Kind kind = Kind::RET;
+  std::string result;
   std::string type;
-  std::string callee;
-  bool hasRetValue = false;
-  int64_t retValue = 0;
+  std::string op;
+  std::vector <std::string> operands;
 
-  static Instruction makeRetVoid() { return {Kind::RET, "void", "", false, 0}; }
+  static Instruction makeRetVoid() {
+    return {Kind::RET, "", "void", "", {}};
+  }
   static Instruction makeRetI32(int64_t v) {
-    return {Kind::RET, "i32", "", true, v};
+    return {Kind::RET, "", "i32", "", {std::to_string(v)}};
   }
-  static Instruction makeCallVoid(const std::string &calleeName) {
-    return {Kind::CALL, "void", calleeName, false, 0};
+  static Instruction makeCallVoid(const std::string &callee) {
+    return {Kind::CALL, "", "void", callee, {}};
   }
-  bool isTerminator() const { return kind == Kind::RET; }
+  bool isTerminator() const;
   void print(std::ostream &out) const;
 };
 struct BasicBlock {
@@ -44,7 +51,7 @@ struct BasicBlock {
 struct Function {
   std::string name;
   std::string returnType;
-  std::vector<std::string> paramTypes;
+  std::vector<FunctionParam> params;
   bool isDeclaration = false;
   std::vector<BasicBlock> blocks;
 
@@ -56,9 +63,9 @@ public:
   void addSourceMain();
   void addEntryWrapper();
   Function &addFunction(const std::string &name, const std::string &returnType,
-                        const std::vector<std::string> &paramTypes);
+                        const std::vector<FunctionParam> &paramTypes);
   void addDeclaration(const std::string &name, const std::string &returnType,
-                      const std::vector<std::string> &paramTypes);
+                      const std::vector<FunctionParam> &paramTypes);
   bool hasType(const std::string &name) const;
   void addStructType(const std::string &name,
                      const std::vector<std::string> &fields);
