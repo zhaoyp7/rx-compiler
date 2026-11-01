@@ -36,6 +36,11 @@ public:
   const TypeArena &typeArena() const;
   const Symbol *symbol(int id) const;
   const std::vector<TypeId> *structFields(int structId) const;
+  TypeId exprType(const Expr &expr) const;
+  int bindingOf(const PathExpr &path) const;
+  const Symbol *symbolOfDecl(const Node &decl) const;
+  int paramSymbol(const Param &param) const;
+  int symbolIdOfDecl(const Node &decl) const;
 
 private:
   std::vector<Symbol> symbols;
@@ -47,6 +52,7 @@ private:
   std::unordered_map<int, TypeId> fnReturnTypes;
   std::unordered_map<int, TypeId> fnReceiverTypes;
   std::unordered_map<const FnDecl *, int> fnSymbols;
+  std::unordered_map<const Param *, int> paramSymbols;
 
   std::map<int, int> derivedCloneSymbols;
 

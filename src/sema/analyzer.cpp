@@ -19,6 +19,7 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   fnReturnTypes.clear();
   fnReceiverTypes.clear();
   fnSymbols.clear();
+  paramSymbols.clear();
   derivedCloneSymbols.clear();
   constValues.clear();
   constState.clear();
@@ -1750,6 +1751,7 @@ void SemanticAnalyzer::resolveFunction(const FnDecl &fn, bool inImpl) {
       }
       tmp[param.name] = true;
       int id = addSymbol(param.name, SymbolKind::Param, fn.span, nullptr);
+      paramSymbols[&param] = id;
       if (param.type != nullptr) {
         bool ok = false;
         TypeId tmp = resolveTypeId(*param.type, ok);
@@ -2683,4 +2685,42 @@ const std::vector<TypeId> *SemanticAnalyzer::structFields(int structId) const {
   }
   return &it->second;
 }
+TypeId SemanticAnalyzer::exprType(const Expr &expr) const {
+  auto it = exprTypes.find(&expr);
+  if (it == exprTypes.end()) {
+    return InvalidType;
+  }
+  return it->second;
+}
+int SemanticAnalyzer::bindingOf(const PathExpr &path) const {
+  auto it = bindings.find(&path);
+  if (it == bindings.end()) {
+    return InvalidSymbol;
+  }
+  return it->second;
+}
+const Symbol *SemanticAnalyzer::symbolOfDecl(const Node &decl) const {
+  for (std::size_t i = 1; i < symbols.size(); ++i) {
+    if (symbols[i].decl == &decl) {
+      return &symbols[i];
+    }
+  }
+  return nullptr;
+}
+int SemanticAnalyzer::paramSymbol(const Param &param) const {
+  auto it = paramSymbols.find(&param);
+  if (it == paramSymbols.end()) {
+    return InvalidSymbol;
+  }
+  return it->second;
+}
+int SemanticAnalyzer::symbolIdOfDecl(const Node &decl) const {
+  for (std::size_t i = 1; i < symbols.size(); ++i) {
+    if (symbols[i].decl == &decl) {
+      return static_cast<int>(i);
+    }
+  }
+  return InvalidSymbol;
+}
+
 } // namespace rx
