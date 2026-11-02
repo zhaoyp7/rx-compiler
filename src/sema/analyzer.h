@@ -41,6 +41,8 @@ public:
   const Symbol *symbolOfDecl(const Node &decl) const;
   int paramSymbol(const Param &param) const;
   int symbolIdOfDecl(const Node &decl) const;
+  int methodSymbol(const MethodCallExpr &method) const;
+  TypeId methodReceiver(const MethodCallExpr &method) const;
 
 private:
   std::vector<Symbol> symbols;
@@ -53,6 +55,8 @@ private:
   std::unordered_map<int, TypeId> fnReceiverTypes;
   std::unordered_map<const FnDecl *, int> fnSymbols;
   std::unordered_map<const Param *, int> paramSymbols;
+  std::unordered_map<const MethodCallExpr *, int> methodSymbols;
+  std::unordered_map<const MethodCallExpr *, TypeId> methodReceivers;
 
   std::map<int, int> derivedCloneSymbols;
 

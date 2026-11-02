@@ -20,6 +20,8 @@ bool SemanticAnalyzer::run(const Crate &crate) {
   fnReceiverTypes.clear();
   fnSymbols.clear();
   paramSymbols.clear();
+  methodSymbols.clear();
+  methodReceivers.clear();
   derivedCloneSymbols.clear();
   constValues.clear();
   constState.clear();
@@ -409,6 +411,7 @@ void SemanticAnalyzer::bindSelf(const FnDecl &fn, int symbolId) {
   TypeId self_id = addSymbol("self", SymbolKind::Param, fn.span, nullptr);
   symbols[self_id].type = receiver;
   symbols[self_id].mutableBinding = selfParam.mutBinding;
+  paramSymbols[&selfParam] = self_id;
   bindLocal("self", self_id);
 }
 
@@ -2512,6 +2515,8 @@ TypeId SemanticAnalyzer::inferMethodCall(const MethodCallExpr &method) {
       id = findUserMethod(receiver, method.method, selectedReceiver);
     }
     if (id != InvalidSymbol) {
+      methodSymbols[&method] = id;
+      methodReceivers[&method] = selectedReceiver;
       const TypeInfo &sel = types.get(selectedReceiver);
       if (sel.kind == TypeKind::Ref && sel.refMut &&
           !isMutableAccess(*method.receiver)) {
@@ -2721,6 +2726,20 @@ int SemanticAnalyzer::symbolIdOfDecl(const Node &decl) const {
     }
   }
   return InvalidSymbol;
+}
+int SemanticAnalyzer::methodSymbol(const MethodCallExpr &method) const {
+  auto it = methodSymbols.find(&method);
+  if (it == methodSymbols.end()) {
+    return InvalidSymbol;
+  }
+  return it->second;
+}
+TypeId SemanticAnalyzer::methodReceiver(const MethodCallExpr &method) const {
+  auto it = methodReceivers.find(&method);
+  if (it == methodReceivers.end()) {
+    return InvalidType;
+  }
+  return it->second;
 }
 
 } // namespace rx
