@@ -87,5 +87,20 @@ std::string IrBuilder::getSlot(int symbol) const {
   }
   return it->second;
 }
+std::string IrBuilder::call(const std::string &returnType,
+                            const std::string &callee,
+                            const std::vector<std::string> &args) {
+  std::string result = returnType == "void" ? "" : getTemp();
+  emit(Instruction{Instruction::Kind::CALL, result, returnType, callee, args});
+  return result;
+}
+std::string IrBuilder::cast(const std::string &op, const std::string &fromType,
+                            const std::string &toType,
+                            const std::string &value) {
+  std::string result = getTemp();
+  emit(Instruction{
+      Instruction::Kind::CAST, result, fromType, op, {value, toType}});
+  return result;
+}
 
 } // namespace rx::ir

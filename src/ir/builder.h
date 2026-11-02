@@ -3,13 +3,13 @@
 #include <cstdint>
 #include <ostream>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "ir.h"
 namespace rx::ir {
 
-class IrBuilder{
+class IrBuilder {
 public:
   explicit IrBuilder(Function &fn);
 
@@ -23,17 +23,23 @@ public:
                      const std::string &lhs, const std::string &rhs);
   std::string icmp(const std::string &pred, const std::string &type,
                    const std::string &lhs, const std::string &rhs);
+  std::string call(const std::string &returnType, const std::string &callee,
+                   const std::vector<std::string> &args);
+  std::string cast(const std::string &op, const std::string &fromType,
+                   const std::string &toType, const std::string &value);
   void ret(const std::string &type, const std::string &value);
   void retVoid();
 
   void startBlock(const std::string &label);
   BasicBlock &getCurrentBlock();
   void branch(const std::string &target);
-  void condBranch(const std::string &cond, const std::string &thenLabel, const std::string &elseLabel);
+  void condBranch(const std::string &cond, const std::string &thenLabel,
+                  const std::string &elseLabel);
   void unreachable();
   std::string newLabel(const std::string &hint);
   std::string ensureTemp(const std::string &type);
-  std::string ensureSlot(int symbol, const std::string &name, const std::string &type);
+  std::string ensureSlot(int symbol, const std::string &name,
+                         const std::string &type);
   std::string getSlot(int symbol) const;
 
 private:
