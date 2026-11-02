@@ -14,12 +14,18 @@ struct FunctionParam {
   std::string type;
   std::string name;
 };
+struct LowerResult {
+  bool ok = false;
+  bool terminated = false;
+  bool hasValue = false;
+  std::string value;
+};
 struct NamedType {
   std::string name;
   std::vector<std::string> fields;
 };
 struct Instruction {
-  enum class Kind{RET, CALL, ALLOCA, LOAD, STORE, BINARY, ICMP, CAST};
+  enum class Kind{RET, CALL, ALLOCA, LOAD, STORE, BINARY, ICMP, CAST, BR, UNREACHABLE};
   Kind kind = Kind::RET;
   std::string result;
   std::string type;

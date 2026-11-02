@@ -1,7 +1,6 @@
 #include "ir/generator.h"
 
 #include <iostream>
-#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -18,6 +17,30 @@ namespace rx {
 IrGenerator::IrGenerator(const Crate &crate, const SemanticAnalyzer &analyzer)
     : crate(crate), analyzer(analyzer) {}
 namespace {
+
+using ir::Instruction;
+using Kind = Instruction::Kind;
+
+struct LoopContext {
+  std::string breakLabel;
+  std::string continueLabel;
+  std::string resultSlot;
+  TypeId resultType = InvalidType;
+  bool isWhile = false;
+};
+struct LowerContext {
+  ir::IrBuilder &builder;
+  const ir::TypeMapper &types;
+  const SemanticAnalyzer &analyzer;
+  const std::string &returnType;
+  std::unordered_map<int, std::string> &paramValues;
+  std::vector<LoopContext> loops;
+
+  std::string valueType(TypeId id) const { return types.valueType(id); }
+  std::string storageType(TypeId id) const { return types.storageType(id); }
+  TypeId exprType(const Expr &expr) const { return analyzer.exprType(expr); }
+};
+
 bool isComparison(BinaryOp op) {
   if (op == BinaryOp::Eq || op == BinaryOp::Ne) {
     return true;
@@ -43,52 +66,105 @@ bool isScalarInt(TypeId id, const SemanticAnalyzer &analyzer) {
   }
   return false;
 }
-std::optional<std::string>
-lowerExpr(const Expr &expr, ir::IrBuilder &builder, const ir::TypeMapper &types,
-          const SemanticAnalyzer &analyzer,
-          const std::unordered_map<int, std::string> &paramValues) {
+bool isUnitType(TypeId id, const SemanticAnalyzer &analyzer) {
+  return (id != InvalidType &&
+          analyzer.typeArena().get(id).kind == TypeKind::Unit);
+}
+bool isScalarIntOrNever(TypeId id, const SemanticAnalyzer &analyzer) {
+  if (id == InvalidType) {
+    return false;
+  }
+  TypeKind kind = analyzer.typeArena().get(id).kind;
+  return kind == TypeKind::Never || isScalarInt(id, analyzer);
+}
+ir::LowerResult failResult() { return ir::LowerResult{}; }
+ir::LowerResult unitResult() { return ir::LowerResult{true}; }
+ir::LowerResult terminatedResult() { return ir::LowerResult{true, true}; }
+ir::LowerResult valueResult(const std::string &value) {
+  return ir::LowerResult{true, false, true, value};
+}
+
+ir::LowerResult lowerIf(const IfExpr &ifex, LowerContext &ctx);
+ir::LowerResult lowerWhile(const WhileExpr &whileex, LowerContext &ctx);
+ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx);
+ir::LowerResult lowerBreak(const BreakExpr &brk, LowerContext &ctx);
+ir::LowerResult lowerContinue(const ContinueExpr &cont, LowerContext &ctx);
+ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx);
+ir::LowerResult lowerReturn(const ReturnExpr &ret, LowerContext &ctx);
+ir::LowerResult lowerLazyBool(const BinaryExpr &expr, LowerContext &ctx);
+bool supportsBlock(const BlockExpr &block, const SemanticAnalyzer &analyzer);
+
+ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  const std::unordered_map<int, std::string> &paramValues = ctx.paramValues;
+  const std::string &returnType = ctx.returnType;
+
   if (auto *lit = dynamic_cast<const IntLit *>(&expr)) {
-    return std::to_string(lit->value);
+    return valueResult(std::to_string(lit->value));
   } else if (auto *path = dynamic_cast<const PathExpr *>(&expr)) {
     if (path->segments.size() == 1) {
       int id = analyzer.bindingOf(*path);
       if (id == InvalidSymbol) {
-        return std::nullopt;
+        return failResult();
       }
       auto it = paramValues.find(id);
       if (it != paramValues.end()) {
-        return it->second;
+        return valueResult(it->second);
       }
       std::string slot = builder.getSlot(id);
       if (slot.empty()) {
-        return std::nullopt;
+        return failResult();
       }
-      std::string temp = builder.getTemp();
       TypeId type = analyzer.exprType(expr);
-      builder.emit(ir::Instruction{ir::Instruction::Kind::LOAD,
-                                   temp,
-                                   types.valueType(type),
-                                   "",
-                                   {slot}});
-      return temp;
+      return valueResult(builder.load(types.valueType(type), slot));
     }
-    return std::nullopt;
+    return failResult();
+  } else if (auto *block = dynamic_cast<const BlockExpr *>(&expr)) {
+    return lowerBlock(*block, ctx);
+  } else if (auto *ret = dynamic_cast<const ReturnExpr *>(&expr)) {
+    return lowerReturn(*ret, ctx);
+  } else if (auto *ifex = dynamic_cast<const IfExpr *>(&expr)) {
+    return lowerIf(*ifex, ctx);
+  } else if (auto *whileex = dynamic_cast<const WhileExpr *>(&expr)) {
+    return lowerWhile(*whileex, ctx);
+  } else if (auto *loop = dynamic_cast<const LoopExpr *>(&expr)) {
+    return lowerLoop(*loop, ctx);
+  } else if (auto *brk = dynamic_cast<const BreakExpr *>(&expr)) {
+    return lowerBreak(*brk, ctx);
+  } else if (auto *cont = dynamic_cast<const ContinueExpr *>(&expr)) {
+    return lowerContinue(*cont, ctx);
   } else if (auto *binary = dynamic_cast<const BinaryExpr *>(&expr)) {
-    auto lhs = lowerExpr(*binary->lhs, builder, types, analyzer, paramValues);
-    auto rhs = lowerExpr(*binary->rhs, builder, types, analyzer, paramValues);
-    if (!lhs || !rhs) {
-      return std::nullopt;
+    BinaryOp op = binary->op;
+    if (op == BinaryOp::LAnd || op == BinaryOp::LOr) {
+      return lowerLazyBool(*binary, ctx);
+    }
+    auto lhs = lowerExpr(*binary->lhs, ctx);
+    if (!lhs.ok) {
+      return failResult();
+    } else if (lhs.terminated) {
+      return lhs;
+    } else if (!lhs.hasValue) {
+      return failResult();
+    }
+    auto rhs = lowerExpr(*binary->rhs, ctx);
+    if (!rhs.ok) {
+      return failResult();
+    } else if (rhs.terminated) {
+      return rhs;
+    } else if (!rhs.hasValue) {
+      return failResult();
     }
     TypeId operandType = analyzer.exprType(*binary->lhs);
     TypeId resultType = analyzer.exprType(expr);
     if (operandType == InvalidType || resultType == InvalidType) {
-      return std::nullopt;
+      return failResult();
     }
     const TypeInfo &operandInfo = analyzer.typeArena().get(operandType);
     bool signedOp = isSignedKind(operandInfo.kind);
     std::string operandIr = types.valueType(operandType);
     std::string resultIr = types.valueType(resultType);
-    BinaryOp op = binary->op;
     std::string opcode = "";
     if (op == BinaryOp::Eq) {
       opcode = "eq";
@@ -124,64 +200,58 @@ lowerExpr(const Expr &expr, ir::IrBuilder &builder, const ir::TypeMapper &types,
       opcode = signedOp ? "ashr" : "lshr";
     }
     if (isComparison(op)) {
-      std::string temp = builder.getTemp();
-      builder.emit(ir::Instruction{
-          ir::Instruction::Kind::ICMP, temp, operandIr, opcode, {*lhs, *rhs}});
-      return temp;
+      return valueResult(builder.icmp(opcode, operandIr, lhs.value, rhs.value));
     }
-    std::string actualRhs = *rhs;
+    std::string actualRhs = rhs.value;
     if (op == BinaryOp::Shl || op == BinaryOp::Shr) {
-      actualRhs = builder.getTemp();
-      builder.emit(ir::Instruction{ir::Instruction::Kind::BINARY,
-                                   actualRhs,
-                                   "i32",
-                                   "and",
-                                   {*rhs, "31"}});
+      actualRhs = builder.binary("and", "i32", rhs.value, "31");
     }
-    std::string temp = builder.getTemp();
-    builder.emit(ir::Instruction{ir::Instruction::Kind::BINARY,
-                                 temp,
-                                 resultIr,
-                                 opcode,
-                                 {*lhs, actualRhs}});
-    return temp;
+    return valueResult(builder.binary(opcode, resultIr, lhs.value, actualRhs));
   }
-  return std::nullopt;
+  return failResult();
 }
-std::optional<std::string> lowerPlace(const Expr &expr, ir::IrBuilder &builder,
-                                      const SemanticAnalyzer &analyzer) {
+ir::LowerResult lowerPlace(const Expr &expr, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
   auto *path = dynamic_cast<const PathExpr *>(&expr);
   if (path == nullptr || path->segments.size() != 1) {
-    return std::nullopt;
+    return failResult();
   }
   int id = analyzer.bindingOf(*path);
   if (id == InvalidSymbol) {
-    return std::nullopt;
+    return failResult();
   }
   std::string slot = builder.getSlot(id);
   if (slot.empty()) {
-    return std::nullopt;
+    return failResult();
   }
-  return slot;
+  return valueResult(slot);
 }
-bool lowerAssign(const AssignExpr &assign, ir::IrBuilder &builder,
-                 const ir::TypeMapper &types, const SemanticAnalyzer &analyzer,
-                 const std::unordered_map<int, std::string> &paramValues) {
-  auto place = lowerPlace(*assign.lhs, builder, analyzer);
+ir::LowerResult lowerAssign(const AssignExpr &assign, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  auto place = lowerPlace(*assign.lhs, ctx);
   TypeId lhsType = analyzer.exprType(*assign.lhs);
-  auto rhs = lowerExpr(*assign.rhs, builder, types, analyzer, paramValues);
-  if (!place || !isScalarInt(lhsType, analyzer) || !rhs) {
-    return false;
+  if (!place.ok || !place.hasValue || !isScalarInt(lhsType, analyzer)) {
+    return failResult();
+  }
+  auto rhs = lowerExpr(*assign.rhs, ctx);
+  if (!rhs.ok) {
+    return failResult();
+  } else if (rhs.terminated) {
+    return rhs;
+  } else if (!rhs.hasValue) {
+    return failResult();
   }
   std::string storage = types.storageType(lhsType);
   if (assign.op == AssignOp::Assign) {
-    builder.emit(ir::Instruction{
-        ir::Instruction::Kind::STORE, "", storage, "", {*rhs, *place}});
-    return true;
+    builder.store(storage, rhs.value, place.value);
+    return unitResult();
   }
-  std::string old = builder.getTemp();
-  builder.emit(
-      ir::Instruction{ir::Instruction::Kind::LOAD, old, storage, "", {*place}});
+  std::string old = builder.load(storage, place.value);
   std::string opcode;
   bool shift = false;
   bool signedl = isSignedKind(analyzer.typeArena().get(lhsType).kind);
@@ -208,24 +278,351 @@ bool lowerAssign(const AssignExpr &assign, ir::IrBuilder &builder,
     opcode = signedl ? "ashr" : "lshr";
     shift = true;
   } else {
-    return false;
+    return failResult();
   }
-  std::string actualRhs = *rhs;
+  std::string actualRhs = rhs.value;
   if (shift) {
-    actualRhs = builder.getTemp();
-    builder.emit(ir::Instruction{
-        ir::Instruction::Kind::BINARY, actualRhs, "i32", "and", {*rhs, "31"}});
+    actualRhs = builder.binary("and", "i32", rhs.value, "31");
   }
-  std::string result = builder.getTemp();
-  builder.emit(ir::Instruction{ir::Instruction::Kind::BINARY,
-                               result,
-                               storage,
-                               opcode,
-                               {old, actualRhs}});
-  builder.emit(ir::Instruction{
-      ir::Instruction::Kind::STORE, "", storage, "", {result, *place}});
-  return true;
+  std::string result = builder.binary(opcode, storage, old, actualRhs);
+  builder.store(storage, result, place.value);
+  return unitResult();
 }
+ir::LowerResult lowerReturn(const ReturnExpr &ret, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const std::string &returnType = ctx.returnType;
+
+  if (ret.value == nullptr) {
+    builder.retVoid();
+    return terminatedResult();
+  }
+  auto ans = lowerExpr(*ret.value, ctx);
+  if (!ans.ok) {
+    return failResult();
+  }
+  if (ans.hasValue) {
+    if (returnType == "void") {
+      return failResult();
+    }
+    builder.ret(returnType, ans.value);
+  } else {
+    if (returnType != "void") {
+      return failResult();
+    }
+    builder.retVoid();
+  }
+  return terminatedResult();
+}
+ir::LowerResult lowerStmt(const Stmt &stmt, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  if (auto *let = dynamic_cast<const LetStmt *>(&stmt)) {
+    if (let->init == nullptr) {
+      return failResult();
+    }
+    int id = analyzer.symbolIdOfDecl(*let);
+    if (id == InvalidSymbol) {
+      return failResult();
+    }
+    const Symbol *sym = analyzer.symbol(id);
+    if (sym == nullptr || sym->type == InvalidType) {
+      return failResult();
+    }
+    auto value = lowerExpr(*let->init, ctx);
+    if (!value.ok) {
+      return failResult();
+    } else if (value.terminated) {
+      return value;
+    } else if (!value.hasValue) {
+      return failResult();
+    }
+    std::string storage = types.storageType(sym->type);
+    std::string slot = builder.ensureSlot(id, let->name, storage);
+    builder.store(storage, value.value, slot);
+    return unitResult();
+  } else if (auto *expr = dynamic_cast<const ExprStmt *>(&stmt)) {
+    if (auto *block = dynamic_cast<const BlockExpr *>(expr->expr.get())) {
+      auto result = lowerBlock(*block, ctx);
+      if (!result.ok) {
+        return failResult();
+      } else if (result.terminated) {
+        return result;
+      }
+      return unitResult();
+    } else if (auto *ifex = dynamic_cast<const IfExpr *>(expr->expr.get())) {
+      auto result = lowerIf(*ifex, ctx);
+      if (!result.ok) {
+        return failResult();
+      } else if (result.terminated) {
+        return result;
+      }
+      return unitResult();
+    } else if (auto *whileex =
+                   dynamic_cast<const WhileExpr *>(expr->expr.get())) {
+      auto result = lowerWhile(*whileex, ctx);
+      if (!result.ok) {
+        return failResult();
+      } else if (result.terminated) {
+        return result;
+      }
+      return unitResult();
+    } else if (auto *loop = dynamic_cast<const LoopExpr *>(expr->expr.get())) {
+      auto result = lowerLoop(*loop, ctx);
+      if (!result.ok) {
+        return failResult();
+      } else if (result.terminated) {
+        return result;
+      }
+      return unitResult();
+    } else if (auto *brk = dynamic_cast<const BreakExpr *>(expr->expr.get())) {
+      return lowerBreak(*brk, ctx);
+    } else if (auto *cont =
+                   dynamic_cast<const ContinueExpr *>(expr->expr.get())) {
+      return lowerContinue(*cont, ctx);
+    } else if (auto *ret = dynamic_cast<const ReturnExpr *>(expr->expr.get())) {
+      return lowerReturn(*ret, ctx);
+    } else if (auto *assign =
+                   dynamic_cast<const AssignExpr *>(expr->expr.get())) {
+      if (assign == nullptr) {
+        return failResult();
+      }
+      return lowerAssign(*assign, ctx);
+    }
+    return failResult();
+  }
+  return failResult();
+}
+ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx) {
+  for (const auto &stmt : block.stmts) {
+    auto result = lowerStmt(*stmt, ctx);
+    if (!result.ok) {
+      return failResult();
+    } else if (result.terminated) {
+      return result;
+    }
+  }
+  if (block.tail == nullptr) {
+    return unitResult();
+  }
+  if (auto *ret = dynamic_cast<const ReturnExpr *>(block.tail.get())) {
+    return lowerReturn(*ret, ctx);
+  }
+  return lowerExpr(*block.tail, ctx);
+}
+ir::LowerResult lowerIf(const IfExpr &ifex, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  auto cond = lowerExpr(*ifex.cond, ctx);
+  if (!cond.ok) {
+    return failResult();
+  } else if (cond.terminated) {
+    return cond;
+  } else if (!cond.hasValue) {
+    return failResult();
+  }
+  TypeId resultType = analyzer.exprType(ifex);
+  TypeKind kind = analyzer.typeArena().get(resultType).kind;
+  bool hasValue = (kind != TypeKind::Unit && kind != TypeKind::Never);
+  if (ifex.elseBranch == nullptr && hasValue) {
+    return failResult();
+  }
+  std::string resultSlot = "";
+  if (hasValue) {
+    resultSlot = builder.ensureTemp(types.valueType(resultType));
+  }
+  std::string thenLabel = builder.newLabel("then");
+  std::string elseLabel = builder.newLabel("else");
+  std::string mergeLabel = builder.newLabel("merge");
+  builder.condBranch(cond.value, thenLabel, elseLabel);
+  builder.startBlock(thenLabel);
+  auto thenResult = lowerBlock(*ifex.then, ctx);
+  if (!thenResult.ok) {
+    return failResult();
+  }
+  if (!thenResult.terminated) {
+    if (hasValue) {
+      if (!thenResult.hasValue) {
+        return failResult();
+      }
+      builder.store(types.valueType(resultType), thenResult.value, resultSlot);
+    }
+    builder.branch(mergeLabel);
+  }
+  builder.startBlock(elseLabel);
+  ir::LowerResult elseResult;
+  if (ifex.elseBranch == nullptr) {
+    elseResult = unitResult();
+  } else if (auto *block =
+                 dynamic_cast<const BlockExpr *>(ifex.elseBranch.get())) {
+    elseResult = lowerBlock(*block, ctx);
+  } else if (auto *innerif =
+                 dynamic_cast<const IfExpr *>(ifex.elseBranch.get())) {
+    elseResult = lowerExpr(*innerif, ctx);
+  } else {
+    return failResult();
+  }
+  if (!elseResult.ok) {
+    return failResult();
+  }
+  if (!elseResult.terminated) {
+    if (hasValue) {
+      builder.store(types.valueType(resultType), elseResult.value, resultSlot);
+    }
+    builder.branch(mergeLabel);
+  }
+  if (thenResult.terminated && elseResult.terminated) {
+    return terminatedResult();
+  }
+  builder.startBlock(mergeLabel);
+  if (!hasValue) {
+    return unitResult();
+  }
+  return valueResult(builder.load(types.valueType(resultType), resultSlot));
+}
+ir::LowerResult lowerBreak(const BreakExpr &brk, LowerContext &ctx) {
+  if (ctx.loops.empty()) {
+    return failResult();
+  }
+  LoopContext loop = ctx.loops.back();
+  bool hasResult = (loop.resultType != InvalidType &&
+                    !isUnitType(loop.resultType, ctx.analyzer));
+  if (brk.value != nullptr) {
+    if (!hasResult || loop.resultSlot.empty()) {
+      return failResult();
+    }
+    auto value = lowerExpr(*brk.value, ctx);
+    if (!value.ok || !value.hasValue) {
+      return failResult();
+    }
+    ctx.builder.store(ctx.valueType(loop.resultType), value.value,
+                      loop.resultSlot);
+  } else if (hasResult) {
+    return failResult();
+  }
+  ctx.builder.branch(loop.breakLabel);
+  return terminatedResult();
+}
+ir::LowerResult lowerContinue(const ContinueExpr &expr, LowerContext &ctx) {
+  if (ctx.loops.empty()) {
+    return failResult();
+  }
+  ctx.builder.branch(ctx.loops.back().continueLabel);
+  return terminatedResult();
+}
+ir::LowerResult lowerWhile(const WhileExpr &whileex, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  std::string condLabel = builder.newLabel("cond");
+  std::string bodyLabel = builder.newLabel("body");
+  std::string exitLabel = builder.newLabel("exit");
+  builder.branch(condLabel);
+  builder.startBlock(condLabel);
+  auto condResult = lowerExpr(*whileex.cond, ctx);
+  if (!condResult.ok) {
+    return failResult();
+  } else if (condResult.terminated) {
+    return condResult;
+  } else if (!condResult.hasValue) {
+    return failResult();
+  }
+  builder.condBranch(condResult.value, bodyLabel, exitLabel);
+  ctx.loops.push_back(LoopContext{exitLabel, condLabel, "", InvalidType, true});
+  builder.startBlock(bodyLabel);
+  auto bodyResult = lowerBlock(*whileex.body, ctx);
+  if (!bodyResult.ok) {
+    ctx.loops.pop_back();
+    return failResult();
+  }
+  if (!bodyResult.terminated) {
+    builder.branch(condLabel);
+  }
+  ctx.loops.pop_back();
+  builder.startBlock(exitLabel);
+  return unitResult();
+}
+ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  auto resultType = analyzer.exprType(loop);
+  TypeKind kind = analyzer.typeArena().get(resultType).kind;
+  bool hasValue = (kind != TypeKind::Unit && kind != TypeKind::Never);
+  std::string retSlot = "";
+  if (hasValue) {
+    retSlot = builder.ensureTemp(types.valueType(resultType));
+  }
+  std::string bodyLabel = builder.newLabel("loop.body");
+  std::string exitLabel = builder.newLabel("loop.exit");
+  builder.branch(bodyLabel);
+  builder.startBlock(bodyLabel);
+  ctx.loops.push_back(LoopContext{exitLabel, bodyLabel, retSlot, resultType});
+  auto bodyResult = lowerBlock(*loop.body, ctx);
+  if (!bodyResult.ok) {
+    ctx.loops.pop_back();
+    return failResult();
+  }
+  if (!bodyResult.terminated) {
+    builder.branch(bodyLabel);
+  }
+  ctx.loops.pop_back();
+  if (kind == TypeKind::Never) {
+    return terminatedResult();
+  }
+  builder.startBlock(exitLabel);
+  if (hasValue) {
+    return valueResult(builder.load(types.valueType(resultType), retSlot));
+  } else {
+    return unitResult();
+  }
+}
+ir::LowerResult lowerLazyBool(const BinaryExpr &expr, LowerContext &ctx) {
+  auto &builder = ctx.builder;
+
+  BinaryOp op = expr.op;
+  auto lhs = lowerExpr(*expr.lhs, ctx);
+  if (!lhs.ok) {
+    return failResult();
+  } else if (lhs.terminated) {
+    return lhs;
+  } else if (!lhs.hasValue) {
+    return failResult();
+  }
+  TypeId resultType = ctx.exprType(expr);
+  std::string resultSlot = builder.ensureTemp(ctx.valueType(resultType));
+  std::string rhsLabel =
+      builder.newLabel(op == BinaryOp::LAnd ? "and.rhs" : "or.rhs");
+  std::string shortLabel =
+      builder.newLabel(op == BinaryOp::LAnd ? "and.short" : "or.short");
+  std::string mergeLabel =
+      builder.newLabel(op == BinaryOp::LAnd ? "and.merge" : "or.merge");
+  if (op == BinaryOp::LAnd) {
+    builder.condBranch(lhs.value, rhsLabel, shortLabel);
+  } else {
+    builder.condBranch(lhs.value, shortLabel, rhsLabel);
+  }
+  builder.startBlock(shortLabel);
+  builder.store("i1", (op == BinaryOp::LAnd ? "false" : "true"), resultSlot);
+  builder.branch(mergeLabel);
+  builder.startBlock(rhsLabel);
+  auto rhs = lowerExpr(*expr.rhs, ctx);
+  if (!rhs.ok) {
+    return failResult();
+  }
+  if (!rhs.terminated) {
+    if (!rhs.hasValue) {
+      return failResult();
+    }
+    builder.store("i1", rhs.value, resultSlot);
+    builder.branch(mergeLabel);
+  }
+  builder.startBlock(mergeLabel);
+  return valueResult(builder.load("i1", resultSlot));
+}
+
 bool supportsBinaryOp(BinaryOp op) {
   switch (op) {
   case BinaryOp::Add:
@@ -244,6 +641,8 @@ bool supportsBinaryOp(BinaryOp op) {
   case BinaryOp::Le:
   case BinaryOp::Gt:
   case BinaryOp::Ge:
+  case BinaryOp::LAnd:
+  case BinaryOp::LOr:
     return true;
   default:
     return false;
@@ -257,10 +656,48 @@ bool supportsExpr(const Expr &expr, const SemanticAnalyzer &analyzer) {
     return path->segments.size() == 1 &&
            analyzer.bindingOf(*path) != InvalidSymbol;
   }
+  if (auto *block = dynamic_cast<const BlockExpr *>(&expr)) {
+    return supportsBlock(*block, analyzer);
+  }
   if (auto *binary = dynamic_cast<const BinaryExpr *>(&expr)) {
     return supportsBinaryOp(binary->op) &&
            supportsExpr(*binary->lhs, analyzer) &&
            supportsExpr(*binary->rhs, analyzer);
+  }
+  if (auto *ifex = dynamic_cast<const IfExpr *>(&expr)) {
+    if (!supportsExpr(*ifex->cond, analyzer)) {
+      return false;
+    }
+    if (!supportsBlock(*ifex->then, analyzer)) {
+      return false;
+    }
+    if (ifex->elseBranch != nullptr) {
+      if (auto *block =
+              dynamic_cast<const BlockExpr *>(ifex->elseBranch.get())) {
+        return supportsBlock(*block, analyzer);
+      }
+      if (auto *nested = dynamic_cast<const IfExpr *>(ifex->elseBranch.get())) {
+        return supportsExpr(*nested, analyzer);
+      }
+      return false;
+    }
+    return true;
+  }
+  if (auto *whileex = dynamic_cast<const WhileExpr *>(&expr)) {
+    return supportsExpr(*whileex->cond, analyzer) &&
+           supportsBlock(*whileex->body, analyzer);
+  }
+  if (auto *loop = dynamic_cast<const LoopExpr *>(&expr)) {
+    return supportsBlock(*loop->body, analyzer);
+  }
+  if (auto *brk = dynamic_cast<const BreakExpr *>(&expr)) {
+    return brk->value == nullptr || supportsExpr(*brk->value, analyzer);
+  }
+  if (dynamic_cast<const ContinueExpr *>(&expr) != nullptr) {
+    return true;
+  }
+  if (auto *ret = dynamic_cast<const ReturnExpr *>(&expr)) {
+    return ret->value == nullptr || supportsExpr(*ret->value, analyzer);
   }
   return false;
 }
@@ -275,15 +712,27 @@ bool supportsStmt(const Stmt &stmt, const SemanticAnalyzer &analyzer) {
 
     int id = analyzer.symbolIdOfDecl(*let);
     const Symbol *sym = analyzer.symbol(id);
-    if (sym == nullptr || !isScalarInt(sym->type, analyzer)) {
+    if (sym == nullptr || !isScalarIntOrNever(sym->type, analyzer)) {
       return false;
     }
 
     TypeId initType = analyzer.exprType(*let->init);
-    return isScalarInt(initType, analyzer);
+    return isScalarIntOrNever(initType, analyzer);
   }
 
   if (auto *expr = dynamic_cast<const ExprStmt *>(&stmt)) {
+    if (dynamic_cast<const BlockExpr *>(expr->expr.get()) != nullptr ||
+        dynamic_cast<const IfExpr *>(expr->expr.get()) != nullptr ||
+        dynamic_cast<const WhileExpr *>(expr->expr.get()) != nullptr ||
+        dynamic_cast<const LoopExpr *>(expr->expr.get()) != nullptr ||
+        dynamic_cast<const BreakExpr *>(expr->expr.get()) != nullptr ||
+        dynamic_cast<const ContinueExpr *>(expr->expr.get()) != nullptr) {
+      return supportsExpr(*expr->expr, analyzer);
+    }
+    if (auto *ret = dynamic_cast<const ReturnExpr *>(expr->expr.get())) {
+      return ret->value == nullptr || supportsExpr(*ret->value, analyzer);
+    }
+
     auto *assign = dynamic_cast<const AssignExpr *>(expr->expr.get());
     if (assign == nullptr) {
       return false;
@@ -356,48 +805,21 @@ bool IrGenerator::generate(std::ostream &out) {
     if (fn->body != nullptr && supportsBlock(*fn->body, analyzer)) {
       ir::Function &outFn = module.addFunction(irName, retType, functionParams);
       ir::IrBuilder builder(outFn);
-      for (const auto &stmt : fn->body->stmts) {
-        if (auto *let = dynamic_cast<const LetStmt *>(stmt.get())) {
-          int id = analyzer.symbolIdOfDecl(*let);
-          if (id == InvalidSymbol) {
-            return false;
-          }
-          const Symbol *sym = analyzer.symbol(id);
-          if (sym == nullptr || sym->type == InvalidType) {
-            return false;
-          }
-          std::string storage = types.storageType(sym->type);
-          std::string slot = builder.ensureSlot(id, let->name, storage);
-          auto value =
-              lowerExpr(*let->init, builder, types, analyzer, paramValues);
-          if (!value) {
-            return false;
-          }
-          builder.emit(ir::Instruction{
-              ir::Instruction::Kind::STORE, "", storage, "", {*value, slot}});
-        } else if (auto *expr = dynamic_cast<const ExprStmt *>(stmt.get())) {
-          auto *assign = dynamic_cast<const AssignExpr *>(expr->expr.get());
-          if (assign == nullptr) {
-            return false;
-          }
-          if (!lowerAssign(*assign, builder, types, analyzer, paramValues)) {
-            return false;
-          }
-        } else {
-          return false;
-        }
+      LowerContext ctx{builder, types, analyzer, retType, paramValues};
+
+      auto body = lowerBlock(*fn->body, ctx);
+      if (!body.ok) {
+        return false;
       }
-      if (fn->body->tail != nullptr) {
-        auto value =
-            lowerExpr(*fn->body->tail, builder, types, analyzer, paramValues);
-        if (!value) {
-          return false;
+      if (!body.terminated) {
+        if (retType == "void") {
+          builder.retVoid();
+        } else {
+          if (!body.hasValue) {
+            return false;
+          }
+          builder.ret(retType, body.value);
         }
-        builder.emit(ir::Instruction{
-            ir::Instruction::Kind::RET, "", retType, "", {*value}});
-      } else {
-        builder.emit(
-            ir::Instruction{ir::Instruction::Kind::RET, "", "void", "", {}});
       }
     } else {
       module.addDeclaration(irName, retType, functionParams);

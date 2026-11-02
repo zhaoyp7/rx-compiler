@@ -68,10 +68,20 @@ void Instruction::print(std::ostream &out) const {
     out << "  " << result << " = icmp " << op << " " << type << " " << operands[0] << ", " << operands[1] << "\n";
   } else if (kind == Kind::CAST) {
     out << "  " << result << " = " << op << " " << type << " " << operands[0] << " to " << operands[1] << "\n";
+  } else if (kind == Kind::BR) {
+    if (operands.size() == 1) {
+      out << "  br label %" << operands[0] << "\n";
+    } else {
+      out << "  br i1 " << operands[0]
+          << ", label %" << operands[1]
+          << ", label %" << operands[2] << "\n";
+    }
+  } else if (kind == Kind::UNREACHABLE) {
+    out << "  unreachable\n";
   }
 }
 bool Instruction::isTerminator() const {
-  return (kind == Kind::RET);
+  return (kind == Kind::RET || kind == Kind::BR || kind == Kind::UNREACHABLE);
 }
 bool BasicBlock::validate() const {
   if (label.empty() || insts.empty()) {
