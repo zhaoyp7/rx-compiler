@@ -102,5 +102,14 @@ std::string IrBuilder::cast(const std::string &op, const std::string &fromType,
       Instruction::Kind::CAST, result, fromType, op, {value, toType}});
   return result;
 }
+std::string IrBuilder::gep(const std::string &baseType, const std::string &base,
+                           const std::vector<std::string> &indices) {
+  std::string result = getTemp();
+  std::vector<std::string> operands;
+  operands.push_back(base);
+  operands.insert(operands.end(), indices.begin(), indices.end());
+  emit(Instruction{Instruction::Kind::GEP, result, baseType, "", operands});
+  return result;
+}
 
 } // namespace rx::ir

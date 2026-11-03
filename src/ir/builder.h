@@ -27,6 +27,8 @@ public:
                    const std::vector<std::string> &args);
   std::string cast(const std::string &op, const std::string &fromType,
                    const std::string &toType, const std::string &value);
+  std::string gep(const std::string &baseType, const std::string &base,
+                  const std::vector<std::string> &indices);
   void ret(const std::string &type, const std::string &value);
   void retVoid();
 

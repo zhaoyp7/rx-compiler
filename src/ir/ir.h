@@ -25,7 +25,7 @@ struct NamedType {
   std::vector<std::string> fields;
 };
 struct Instruction {
-  enum class Kind{RET, CALL, ALLOCA, LOAD, STORE, BINARY, ICMP, CAST, BR, UNREACHABLE};
+  enum class Kind{RET, CALL, ALLOCA, LOAD, STORE, BINARY, ICMP, CAST, BR, UNREACHABLE, GEP};
   Kind kind = Kind::RET;
   std::string result;
   std::string type;
