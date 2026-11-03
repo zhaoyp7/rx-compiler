@@ -45,6 +45,7 @@ public:
   TypeId methodReceiver(const MethodCallExpr &method) const;
   int structFieldIndex(int structId, const std::string &name) const;
   const StructLayout *structLayout(int structId) const;
+  const ConstVal *constValue(int symbol) const;
 
 private:
   std::vector<Symbol> symbols;

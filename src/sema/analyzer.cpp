@@ -226,7 +226,8 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
       int id = it->second;
       int tmp_id = currentStruct;
       currentStruct = id;
-      symbols[id].type = types.intern(TypeInfo{TypeKind::Struct, InvalidType, false, 0, id});
+      symbols[id].type =
+          types.intern(TypeInfo{TypeKind::Struct, InvalidType, false, 0, id});
       for (const auto &field : sd->fields) {
         TypeId fieldType = InvalidType;
         if (field.type != nullptr) {
@@ -884,8 +885,8 @@ bool SemanticAnalyzer::blocksStoredMutRef(const Expr &e) {
       return true;
     }
     return (typeHasSharedBarrier(base->second) ||
-           blocksStoredMutRef(*field->receiver) ||
-           typeHasSharedBarrier(type->second));
+            blocksStoredMutRef(*field->receiver) ||
+            typeHasSharedBarrier(type->second));
   } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
     auto base = exprTypes.find(index->base.get());
     auto type = exprTypes.find(&e);
@@ -919,7 +920,7 @@ bool SemanticAnalyzer::blocksStoredMutRef(const Expr &e) {
         return true;
       }
       return (typeHasSharedBarrier(operand->second) ||
-             blocksStoredMutRef(*unary->operand));
+              blocksStoredMutRef(*unary->operand));
     }
   } else if (auto *block = dynamic_cast<const BlockExpr *>(&e)) {
     return (block->tail != nullptr && blocksStoredMutRef(*block->tail));
@@ -927,7 +928,8 @@ bool SemanticAnalyzer::blocksStoredMutRef(const Expr &e) {
     if (ifex->then != nullptr && blocksStoredMutRef(*ifex->then)) {
       return true;
     }
-    return (ifex->elseBranch != nullptr && blocksStoredMutRef(*ifex->elseBranch));
+    return (ifex->elseBranch != nullptr &&
+            blocksStoredMutRef(*ifex->elseBranch));
   }
   auto it = exprTypes.find(&e);
   return (it == exprTypes.end() || typeHasSharedBarrier(it->second));
@@ -949,7 +951,7 @@ bool SemanticAnalyzer::isMutablePlace(const Expr &e) {
       return false;
     }
     return (!blocksStoredMutRef(*field->receiver) &&
-           isMutableAccess(*field->receiver));
+            isMutableAccess(*field->receiver));
   } else if (auto *index = dynamic_cast<const IndexExpr *>(&e)) {
     auto base = exprTypes.find(index->base.get());
     if (base == exprTypes.end()) {
@@ -1074,7 +1076,8 @@ bool SemanticAnalyzer::isCopyType(TypeId id) {
   std::unordered_set<int> visiting;
   return isCopyType(id, visiting);
 }
-bool SemanticAnalyzer::isCopyType(TypeId id, std::unordered_set<int> &visiting) {
+bool SemanticAnalyzer::isCopyType(TypeId id,
+                                  std::unordered_set<int> &visiting) {
   if (id == InvalidType) {
     return true;
   }
@@ -1445,7 +1448,8 @@ bool SemanticAnalyzer::checkDerives() {
   }
   return allOk;
 }
-bool SemanticAnalyzer::supportsClone(TypeId id, std::unordered_set<int> &visiting) {
+bool SemanticAnalyzer::supportsClone(TypeId id,
+                                     std::unordered_set<int> &visiting) {
   if (id == InvalidType) {
     return true;
   }
@@ -1484,7 +1488,8 @@ bool SemanticAnalyzer::supportsClone(TypeId id, std::unordered_set<int> &visitin
   }
   return false;
 }
-bool SemanticAnalyzer::supportsPartialEq(TypeId id, std::unordered_set<int> &visiting) {
+bool SemanticAnalyzer::supportsPartialEq(TypeId id,
+                                         std::unordered_set<int> &visiting) {
   if (id == InvalidType) {
     return true;
   }
@@ -1523,7 +1528,8 @@ bool SemanticAnalyzer::supportsPartialEq(TypeId id, std::unordered_set<int> &vis
   }
   return false;
 }
-bool SemanticAnalyzer::supportsEq(TypeId id, std::unordered_set<int> &visiting) {
+bool SemanticAnalyzer::supportsEq(TypeId id,
+                                  std::unordered_set<int> &visiting) {
   if (id == InvalidType) {
     return true;
   }
@@ -1543,7 +1549,7 @@ bool SemanticAnalyzer::supportsEq(TypeId id, std::unordered_set<int> &visiting) 
       return true;
     }
     const StructDecl *sd = dynamic_cast<const StructDecl *>(symbols[sid].decl);
-    if (sd == nullptr || !sd->derives.partialEq|| !sd->derives.partialEq) {
+    if (sd == nullptr || !sd->derives.partialEq || !sd->derives.partialEq) {
       return false;
     }
     visiting.insert(sid);
@@ -1569,7 +1575,8 @@ int SemanticAnalyzer::getDerivedClone(int structId) {
   }
   int id = addSymbol("clone", SymbolKind::AssocFn, SourceSpan{}, nullptr);
   symbols[id].owner = structId;
-  TypeId st = types.intern(TypeInfo{TypeKind::Struct, InvalidType, false, 0, structId});
+  TypeId st =
+      types.intern(TypeInfo{TypeKind::Struct, InvalidType, false, 0, structId});
   TypeId rt = types.intern(TypeInfo{TypeKind::Ref, st, false});
   fnReceiverTypes[id] = rt;
   fnParamTypes[id] = {rt};
@@ -1627,8 +1634,8 @@ int SemanticAnalyzer::resolvePath(const PathExpr &path) {
           } else if (second.name == "new" || second.name == "clone") {
             return InvalidSymbol;
           } else if (first.name == "Vec" &&
-                      (second.name == "len" || second.name == "is_empty" ||
-                       second.name == "push" || second.name == "remove")) {
+                     (second.name == "len" || second.name == "is_empty" ||
+                      second.name == "push" || second.name == "remove")) {
             return InvalidSymbol;
           }
           error();
@@ -2027,8 +2034,7 @@ TypeId SemanticAnalyzer::inferReturn(const ReturnExpr &returnex) {
   TypeId res = InvalidType;
   if (returnex.value != nullptr) {
     TypeId id = infer(*returnex.value, currentReturnType);
-    if (currentReturnType != InvalidType && id != InvalidType &&
-        !isNever(id) &&
+    if (currentReturnType != InvalidType && id != InvalidType && !isNever(id) &&
         !checkCoercion(*returnex.value, id, currentReturnType)) {
       error();
     }
@@ -2052,8 +2058,7 @@ TypeId SemanticAnalyzer::inferBinary(const BinaryExpr &binary) {
       error();
     } else if (tmp_r != InvalidType && !isIntType(tmp_r)) {
       error();
-    } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
-               tmp_l != tmp_r) {
+    } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
       error();
     } else if (tmp_l != InvalidType) {
       res = tmp_l;
@@ -2070,8 +2075,7 @@ TypeId SemanticAnalyzer::inferBinary(const BinaryExpr &binary) {
     } else if (tmp_r != InvalidType && !isIntType(tmp_r) &&
                !isBoolType(tmp_r)) {
       error();
-    } else if (tmp_l != InvalidType && tmp_r != InvalidType &&
-               tmp_l != tmp_r) {
+    } else if (tmp_l != InvalidType && tmp_r != InvalidType && tmp_l != tmp_r) {
       error();
     }
     res = (tmp_l == InvalidType ? tmp_r : tmp_l);
@@ -2132,8 +2136,7 @@ TypeId SemanticAnalyzer::inferAssign(const AssignExpr &assign) {
           op == AssignOp::MulAssign || op == AssignOp::DivAssign ||
           op == AssignOp::RemAssign) {
         bad_lhs = (isIntType(l_id) ? false : true);
-      } else if (op == AssignOp::BitAndAssign ||
-                 op == AssignOp::BitOrAssign ||
+      } else if (op == AssignOp::BitAndAssign || op == AssignOp::BitOrAssign ||
                  op == AssignOp::BitXorAssign) {
         bad_lhs = ((isIntType(l_id) || isBoolType(l_id)) ? false : true);
       } else if (op == AssignOp::ShlAssign || op == AssignOp::ShrAssign) {
@@ -2306,8 +2309,7 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
       error();
     } else {
       TypeId a = infer(*call.args[0], refInner);
-      if (a != InvalidType &&
-          !checkCoercion(*call.args[0], a, refInner)) {
+      if (a != InvalidType && !checkCoercion(*call.args[0], a, refInner)) {
         error();
       }
     }
@@ -2323,8 +2325,7 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
       error();
     } else {
       TypeId a = infer(*call.args[0], refInner);
-      if (a != InvalidType &&
-          !checkCoercion(*call.args[0], a, refInner)) {
+      if (a != InvalidType && !checkCoercion(*call.args[0], a, refInner)) {
         error();
       }
     }
@@ -2337,8 +2338,7 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
         infer(*arg, InvalidType);
     } else {
       TypeId a = infer(*call.args[0], refVec);
-      if (a != InvalidType &&
-          !checkCoercion(*call.args[0], a, refVec)) {
+      if (a != InvalidType && !checkCoercion(*call.args[0], a, refVec)) {
         error();
       }
     }
@@ -2352,8 +2352,7 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
       }
     } else {
       TypeId a = infer(*call.args[0], refVec);
-      if (a != InvalidType &&
-          !checkCoercion(*call.args[0], a, refVec)) {
+      if (a != InvalidType && !checkCoercion(*call.args[0], a, refVec)) {
         error();
       }
     }
@@ -2367,8 +2366,7 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
       }
     } else {
       TypeId a0 = infer(*call.args[0], mutVec);
-      if (a0 != InvalidType &&
-          !checkCoercion(*call.args[0], a0, mutVec)) {
+      if (a0 != InvalidType && !checkCoercion(*call.args[0], a0, mutVec)) {
         error();
       }
       TypeId a1 = infer(*call.args[1], inner);
@@ -2387,13 +2385,11 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
       }
     } else {
       TypeId a0 = infer(*call.args[0], mutVec);
-      if (a0 != InvalidType &&
-          !checkCoercion(*call.args[0], a0, mutVec)) {
+      if (a0 != InvalidType && !checkCoercion(*call.args[0], a0, mutVec)) {
         error();
       }
       TypeId a1 = infer(*call.args[1], usizeT);
-      if (a1 != InvalidType &&
-          !checkCoercion(*call.args[1], a1, usizeT)) {
+      if (a1 != InvalidType && !checkCoercion(*call.args[1], a1, usizeT)) {
         error();
       }
     }
@@ -2404,8 +2400,8 @@ bool SemanticAnalyzer::tryInferBuiltinCall(const CallExpr &call,
 }
 TypeId SemanticAnalyzer::inferArrayLit(const ArrayLit &array, TypeId expected) {
   TypeId res = InvalidType;
-  bool array_expected = (expected != InvalidType &&
-                         types.get(expected).kind == TypeKind::Array);
+  bool array_expected =
+      (expected != InvalidType && types.get(expected).kind == TypeKind::Array);
   TypeId elem_expected = InvalidType, elem_type = InvalidType;
   int len = 0;
   if (array_expected) {
@@ -2427,14 +2423,15 @@ TypeId SemanticAnalyzer::inferArrayLit(const ArrayLit &array, TypeId expected) {
     error();
   }
   res = types.intern(TypeInfo{TypeKind::Array,
-                              array_expected ? elem_expected : elem_type,
-                              false, (uint32_t)array.elements.size()});
+                              array_expected ? elem_expected : elem_type, false,
+                              (uint32_t)array.elements.size()});
   return res;
 }
-TypeId SemanticAnalyzer::inferArrayRepeat(const ArrayRepeat &array, TypeId expected) {
+TypeId SemanticAnalyzer::inferArrayRepeat(const ArrayRepeat &array,
+                                          TypeId expected) {
   TypeId res = InvalidType;
-  bool array_expected = (expected != InvalidType &&
-                         types.get(expected).kind == TypeKind::Array);
+  bool array_expected =
+      (expected != InvalidType && types.get(expected).kind == TypeKind::Array);
   TypeId elem_expected = InvalidType;
   if (array_expected) {
     elem_expected = types.get(expected).inner;
@@ -2675,11 +2672,9 @@ TypeId SemanticAnalyzer::returnType(int symbol) const {
   }
   return it->second;
 }
-const TypeArena &SemanticAnalyzer::typeArena() const {
-  return types;
-}
+const TypeArena &SemanticAnalyzer::typeArena() const { return types; }
 const Symbol *SemanticAnalyzer::symbol(int id) const {
-  if (id <= 0 || id >= (int) symbols.size()) {
+  if (id <= 0 || id >= (int)symbols.size()) {
     return nullptr;
   }
   return &symbols[id];
@@ -2742,7 +2737,8 @@ TypeId SemanticAnalyzer::methodReceiver(const MethodCallExpr &method) const {
   }
   return it->second;
 }
-int SemanticAnalyzer::structFieldIndex(int structId, const std::string &name) const {
+int SemanticAnalyzer::structFieldIndex(int structId,
+                                       const std::string &name) const {
   const Symbol *sym = symbol(structId);
   if (sym == nullptr) {
     return -1;
@@ -2761,6 +2757,13 @@ int SemanticAnalyzer::structFieldIndex(int structId, const std::string &name) co
 const StructLayout *SemanticAnalyzer::structLayout(int structId) const {
   auto it = structLayouts.find(structId);
   if (it == structLayouts.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
+const ConstVal *SemanticAnalyzer::constValue(int symbol) const {
+  auto it = constValues.find(symbol);
+  if (it == constValues.end()) {
     return nullptr;
   }
   return &it->second;
