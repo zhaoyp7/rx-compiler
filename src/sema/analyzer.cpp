@@ -226,6 +226,7 @@ void SemanticAnalyzer::resolveCrate(const Crate &crate) {
       int id = it->second;
       int tmp_id = currentStruct;
       currentStruct = id;
+      symbols[id].type = types.intern(TypeInfo{TypeKind::Struct, InvalidType, false, 0, id});
       for (const auto &field : sd->fields) {
         TypeId fieldType = InvalidType;
         if (field.type != nullptr) {
@@ -2741,5 +2742,27 @@ TypeId SemanticAnalyzer::methodReceiver(const MethodCallExpr &method) const {
   }
   return it->second;
 }
-
+int SemanticAnalyzer::structFieldIndex(int structId, const std::string &name) const {
+  const Symbol *sym = symbol(structId);
+  if (sym == nullptr) {
+    return -1;
+  }
+  auto *decl = dynamic_cast<const StructDecl *>(sym->decl);
+  if (decl == nullptr) {
+    return -1;
+  }
+  for (std::size_t i = 0; i < decl->fields.size(); ++i) {
+    if (decl->fields[i].name == name) {
+      return i;
+    }
+  }
+  return -1;
+}
+const StructLayout *SemanticAnalyzer::structLayout(int structId) const {
+  auto it = structLayouts.find(structId);
+  if (it == structLayouts.end()) {
+    return nullptr;
+  }
+  return &it->second;
+}
 } // namespace rx

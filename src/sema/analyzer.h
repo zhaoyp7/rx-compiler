@@ -43,6 +43,8 @@ public:
   int symbolIdOfDecl(const Node &decl) const;
   int methodSymbol(const MethodCallExpr &method) const;
   TypeId methodReceiver(const MethodCallExpr &method) const;
+  int structFieldIndex(int structId, const std::string &name) const;
+  const StructLayout *structLayout(int structId) const;
 
 private:
   std::vector<Symbol> symbols;
