@@ -1,11 +1,10 @@
 # 已接入 SEMANTIC 与 IR；CODEGEN 等第 12 周再填。
 # 参考实现配置已备份到 config.reference.mk。
 
-# 构建编译器，并把 C runtime 编成 REIMU 可链接的汇编（BUILD 每次 make test 只跑一次）
+# 构建编译器并复制预生成的 runtime 汇编；OJ 的 BUILD 环境不要求安装 clang-22。
 BUILD = cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug >/dev/null && \
     cmake --build build -j2 >/dev/null && \
-    clang-22 --target=riscv32-unknown-elf -march=rv32im -mabi=ilp32 \
-      -O2 -fno-builtin -S runtime/runtime.c -o {runtime}
+    cp runtime/runtime.s {runtime}
 
 # 语义：accept 退 0，reject 恰好退 1
 SEMANTIC = ./build/rxc --stage semantic {source}

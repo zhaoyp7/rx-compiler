@@ -675,7 +675,7 @@ Module → Function → BasicBlock → Instruction
 | `src/ir/builder.h` / `builder.cpp` | 创建指令、临时值、基本块和入口块中的栈槽 |
 | `src/ir/type.h` / `type.cpp` | `TypeId` 到 LLVM 类型的映射、结构体和 Vec 类型声明 |
 | `src/ir/generator.h` / `generator.cpp` | AST lowering、引用转换、控制流、容器、clone/eq |
-| `runtime/runtime.c` | I/O 与堆分配的 C ABI 实现 |
+| `runtime/runtime.c` / `runtime.s` | I/O 与堆分配的 C ABI 源码及预生成的 RV32IM 汇编 |
 | `config.mk` / `scripts/test.py` | 构建 runtime、调用编译器、Clang 和 REIMU，检查输出 |
 
 所有源函数都进入实际 lowering；失败会返回错误并让驱动退出 1。当前实现没有
@@ -907,9 +907,20 @@ declare ptr @memmove(ptr, ptr, i32)
 当前 align 参数未参与分配计算。生成代码负责计算字节数和 1 或 4 字节的对齐，
 memmove 由 REIMU 提供。runtime 不定义 main，也不解释源程序或 IR。
 
-`config.mk` 的 BUILD 将 C runtime 编成 RV32IM/ILP32 汇编，测试 runner 与程序汇编
-一起交给 REIMU。I/O、分配和内存移动跨越外部 C ABI，后续自研后端必须保留这些接口，
-并满足 psABI 的参数、返回值、寄存器保存和栈对齐要求。
+`runtime/runtime.s` 在开发环境中由上述 C 源码预先生成，并随仓库提交。
+`config.mk` 的 BUILD 构建 C++ 编译器后，将该汇编复制到 `{runtime}`；测试 runner
+再与程序汇编一起交给 REIMU。这避免要求 OJ 的构建环境提供 clang-22；IR 测试阶段的
+Clang 由运行器另行调用，与 BUILD 所需工具分开。
+
+修改 `runtime.c` 后，应在开发环境中重新生成并同步检查 `runtime.s`：
+
+```bash
+clang-22 --target=riscv32-unknown-elf -march=rv32im -mabi=ilp32 \
+  -O2 -fno-builtin -S runtime/runtime.c -o runtime/runtime.s
+```
+
+I/O、分配和内存移动跨越外部 C ABI，后续自研后端必须保留这些接口，并满足 psABI 的
+参数、返回值、寄存器保存和栈对齐要求。
 
 按照[后端与堆分配契约](../rx-spec-zh/16-backend/16.00-backend.md)，有效分配计算适合
 usize，不需要额外的动态溢出检查；允许保留旧缓冲区，不要求实现 free 或递归析构。
