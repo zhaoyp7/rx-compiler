@@ -70,5 +70,17 @@
     "stage": "semantic",
     "compilation_success": false,
     "description": "A call callee must be a declared function, associated function, or builtin."
+  },
+  {
+    "source": "rej-assignment-tail-nonunit-return.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Assignment yields unit, which cannot be returned as i32."
+  },
+  {
+    "source": "rej-assignment-condition.rx",
+    "stage": "semantic",
+    "compilation_success": false,
+    "description": "Assignment yields unit, which cannot be used as an if condition."
   }
 ]

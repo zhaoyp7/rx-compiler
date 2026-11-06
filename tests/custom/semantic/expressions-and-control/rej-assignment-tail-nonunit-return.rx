@@ -1,0 +1,5 @@
+fn bad() -> i32 {
+    let mut x = 0;
+    x = 7
+}
+fn main() {}
