@@ -66,12 +66,13 @@ struct Function {
 };
 class Module {
 public:
-  void addSourceMain();
   void addEntryWrapper();
   Function &addFunction(const std::string &name, const std::string &returnType,
                         const std::vector<FunctionParam> &paramTypes);
   void addDeclaration(const std::string &name, const std::string &returnType,
                       const std::vector<FunctionParam> &paramTypes);
+  std::size_t functionCount() const;
+  void reserveFunctions(std::size_t count);
   bool hasType(const std::string &name) const;
   void addStructType(const std::string &name,
                      const std::vector<std::string> &fields);

@@ -153,13 +153,6 @@ bool Function::print(std::ostream &out) const {
   }
   return !out.fail();
 }
-void Module::addSourceMain() {
-  Function &fn = addFunction(SourceMain, "void", {});
-  BasicBlock entry;
-  entry.label = "entry";
-  entry.insts.push_back(Instruction::makeRetVoid());
-  fn.blocks.push_back(std::move(entry));
-}
 void Module::addEntryWrapper() {
   Function &fn = addFunction(EntryMain, "i32", {});
   BasicBlock entry;
@@ -213,6 +206,10 @@ void Module::addDeclaration(const std::string &name,
                             const std::vector<FunctionParam> &params) {
   Function &fn = addFunction(name, returnType, params);
   fn.isDeclaration = true;
+}
+std::size_t Module::functionCount() const { return functions.size(); }
+void Module::reserveFunctions(std::size_t count) {
+  functions.reserve(count);
 }
 bool Module::hasType(const std::string &name) const {
   for (const auto &type : types) {

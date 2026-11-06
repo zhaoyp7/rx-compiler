@@ -17,16 +17,11 @@ namespace rx {
 IrGenerator::IrGenerator(const Crate &crate, const SemanticAnalyzer &analyzer)
     : crate(crate), analyzer(analyzer) {}
 namespace {
-
-using ir::Instruction;
-using Kind = Instruction::Kind;
-
 struct LoopContext {
   std::string breakLabel;
   std::string continueLabel;
   std::string resultSlot;
   TypeId resultType = InvalidType;
-  bool isWhile = false;
 };
 struct LowerContext {
   ir::IrBuilder &builder;
@@ -34,12 +29,24 @@ struct LowerContext {
   const SemanticAnalyzer &analyzer;
   const std::string &returnType;
   std::unordered_map<int, std::string> &paramValues;
-  std::unordered_map<int, std::string> &paramSlots;
   std::vector<LoopContext> loops;
+  TypeId returnTypeId = InvalidType;
 
   std::string valueType(TypeId id) const { return types.valueType(id); }
   std::string storageType(TypeId id) const { return types.storageType(id); }
   TypeId exprType(const Expr &expr) const { return analyzer.exprType(expr); }
+};
+struct CloneFnInfo {
+  const StructDecl *decl;
+  TypeId type;
+  std::string name;
+  ir::Function *fn;
+};
+struct EqFnInfo {
+  const StructDecl *decl;
+  TypeId type;
+  std::string name;
+  ir::Function *fn;
 };
 
 bool isComparison(BinaryOp op) {
@@ -56,9 +63,6 @@ bool isSignedKind(TypeKind kind) {
   return (kind == TypeKind::I32 || kind == TypeKind::Isize);
 }
 bool isScalarInt(TypeId id, const SemanticAnalyzer &analyzer) {
-  if (id == InvalidType) {
-    return false;
-  }
   TypeKind kind = analyzer.typeArena().get(id).kind;
   if (kind == TypeKind::I32 || kind == TypeKind::U32) {
     return true;
@@ -68,55 +72,97 @@ bool isScalarInt(TypeId id, const SemanticAnalyzer &analyzer) {
   return false;
 }
 bool isUnitType(TypeId id, const SemanticAnalyzer &analyzer) {
-  return (id != InvalidType &&
-          analyzer.typeArena().get(id).kind == TypeKind::Unit);
-}
-bool isScalarIntOrNever(TypeId id, const SemanticAnalyzer &analyzer) {
-  if (id == InvalidType) {
-    return false;
-  }
-  TypeKind kind = analyzer.typeArena().get(id).kind;
-  return kind == TypeKind::Never || isScalarInt(id, analyzer);
+  return (analyzer.typeArena().get(id).kind == TypeKind::Unit);
 }
 bool isScalarBool(TypeId id, const SemanticAnalyzer &analyzer) {
-  return (id != InvalidType &&
-          analyzer.typeArena().get(id).kind == TypeKind::Bool);
+  return (analyzer.typeArena().get(id).kind == TypeKind::Bool);
 }
 bool isScalarValue(TypeId id, const SemanticAnalyzer &analyzer) {
   return (isScalarInt(id, analyzer) || isScalarBool(id, analyzer));
 }
-bool isScalarValueOrNever(TypeId id, const SemanticAnalyzer &analyzer) {
-  return isScalarValue(id, analyzer) ||
-         (id != InvalidType &&
-          analyzer.typeArena().get(id).kind == TypeKind::Never);
-}
 bool isStructType(TypeId id, const SemanticAnalyzer &analyzer) {
-  return id != InvalidType &&
-         analyzer.typeArena().get(id).kind == TypeKind::Struct;
+  return (analyzer.typeArena().get(id).kind == TypeKind::Struct);
 }
 bool isArrayType(TypeId id, const SemanticAnalyzer &analyzer) {
-  return id != InvalidType &&
-         analyzer.typeArena().get(id).kind == TypeKind::Array;
+  return (analyzer.typeArena().get(id).kind == TypeKind::Array);
 }
 bool isRefType(TypeId id, const SemanticAnalyzer &analyzer) {
-  return id != InvalidType &&
-         analyzer.typeArena().get(id).kind == TypeKind::Ref;
+  return (analyzer.typeArena().get(id).kind == TypeKind::Ref);
+}
+bool isBoxNewCall(const CallExpr &call) {
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return false;
+  }
+  const auto &first = path->segments[0];
+  const auto &second = path->segments[1];
+  return (first.kind == PathSegmentKind::Ident && first.name == "Box" &&
+          second.name == "new");
+}
+bool isBoxType(TypeId id, const SemanticAnalyzer &analyzer) {
+  return (analyzer.typeArena().get(id).kind == TypeKind::Box);
+}
+bool isVecType(TypeId id, const SemanticAnalyzer &analyzer) {
+  return (analyzer.typeArena().get(id).kind == TypeKind::Vec);
+}
+bool isVecNewCall(const CallExpr &call) {
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return false;
+  }
+  const auto &first = path->segments[0];
+  const auto &second = path->segments[1];
+  return (first.kind == PathSegmentKind::Ident && first.name == "Vec" &&
+          second.kind == PathSegmentKind::Ident && second.name == "new");
+}
+bool isVecBuiltinCall(const CallExpr &call) {
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return false;
+  }
+  const auto &first = path->segments[0];
+  const auto &second = path->segments[1];
+  if (first.kind != PathSegmentKind::Ident || first.name != "Vec" ||
+      second.kind != PathSegmentKind::Ident) {
+    return false;
+  }
+  return (second.name == "len" || second.name == "is_empty" ||
+          second.name == "push" || second.name == "remove");
+}
+bool isBoxCloneCall(const CallExpr &call) {
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return false;
+  }
+  const auto &first = path->segments[0];
+  const auto &second = path->segments[1];
+  return (first.kind == PathSegmentKind::Ident && first.name == "Box" &&
+          second.kind == PathSegmentKind::Ident && second.name == "clone");
+}
+bool isVecCloneCall(const CallExpr &call) {
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return false;
+  }
+  const auto &first = path->segments[0];
+  const auto &second = path->segments[1];
+  return (first.kind == PathSegmentKind::Ident && first.name == "Vec" &&
+          second.kind == PathSegmentKind::Ident && second.name == "clone");
 }
 bool isRefOrBoxType(TypeId id, const SemanticAnalyzer &analyzer) {
   if (id == InvalidType) {
     return false;
   }
   TypeKind kind = analyzer.typeArena().get(id).kind;
-  return kind == TypeKind::Ref || kind == TypeKind::Box;
+  return (kind == TypeKind::Ref || kind == TypeKind::Box);
 }
 bool isLowerableValue(TypeId id, const SemanticAnalyzer &analyzer) {
-  if (isScalarValue(id, analyzer) || isStructType(id, analyzer)) {
+  if (isScalarValue(id, analyzer) || isStructType(id, analyzer) ||
+      isRefType(id, analyzer)) {
     return true;
   }
-  if (analyzer.typeArena().get(id).kind == TypeKind::Ref) {
-    return true;
-  }
-  if (isArrayType(id, analyzer)) {
+  if (isArrayType(id, analyzer) || isBoxType(id, analyzer) ||
+      isVecType(id, analyzer)) {
     const TypeInfo &info = analyzer.typeArena().get(id);
     return isLowerableValue(info.inner, analyzer);
   }
@@ -136,10 +182,7 @@ std::string callTargetName(const Symbol &sym,
   if (sym.kind == SymbolKind::BuiltinFn) {
     return sym.name;
   } else if (sym.kind == SymbolKind::Fn) {
-    if (sym.name == "main") {
-      return "_rx_main";
-    }
-    return "_rx_fn_" + sym.name;
+    return (sym.name == "main" ? "_rx_main" : "_rx_fn_" + sym.name);
   } else if (sym.kind == SymbolKind::AssocFn && sym.owner != InvalidSymbol) {
     const Symbol *owner = analyzer.symbol(sym.owner);
     if (owner == nullptr) {
@@ -184,14 +227,22 @@ std::string derefValueToType(const std::string &value, TypeId type,
   }
   return result;
 }
-TypeId stripRefs(TypeId type, const SemanticAnalyzer &analyzer) {
+std::string vecDataPtr(const std::string &vecPtr, LowerContext &ctx) {
+  return ctx.builder.gep("%struct.Vec", vecPtr, {"i32 0", "i32 0"});
+}
+std::string vecLenPtr(const std::string &vecPtr, LowerContext &ctx) {
+  return ctx.builder.gep("%struct.Vec", vecPtr, {"i32 0", "i32 1"});
+}
+std::string vecCapPtr(const std::string &vecPtr, LowerContext &ctx) {
+  return ctx.builder.gep("%struct.Vec", vecPtr, {"i32 0", "i32 2"});
+}
+TypeId strip(TypeId type, const SemanticAnalyzer &analyzer) {
   while (type != InvalidType) {
     const TypeInfo &info = analyzer.typeArena().get(type);
-    if (info.kind == TypeKind::Ref || info.kind == TypeKind::Box) {
-      type = info.inner;
-    } else {
+    if (info.kind != TypeKind::Ref && info.kind != TypeKind::Box) {
       break;
     }
+    type = info.inner;
   }
   return type;
 }
@@ -207,26 +258,53 @@ ir::LowerResult lowerWhile(const WhileExpr &whileex, LowerContext &ctx);
 ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx);
 ir::LowerResult lowerBreak(const BreakExpr &brk, LowerContext &ctx);
 ir::LowerResult lowerContinue(const ContinueExpr &cont, LowerContext &ctx);
-ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx);
+ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx,
+                           TypeId expectedType = InvalidType);
 ir::LowerResult lowerReturn(const ReturnExpr &ret, LowerContext &ctx);
 ir::LowerResult lowerLazyBool(const BinaryExpr &expr, LowerContext &ctx);
 ir::LowerResult lowerCall(const CallExpr &call, LowerContext &ctx);
 ir::LowerResult lowerStructLit(const StructLit &lit, LowerContext &ctx);
 ir::LowerResult lowerPlace(const Expr &expr, LowerContext &ctx);
+ir::LowerResult lowerAssign(const AssignExpr &assign, LowerContext &ctx);
 ir::LowerResult lowerArrayLit(const ArrayLit &lit, LowerContext &ctx);
 ir::LowerResult lowerArrayRepeat(const ArrayRepeat &arr, LowerContext &ctx);
 ir::LowerResult lowerPlaceOrTemp(const Expr &expr, LowerContext &ctx);
 ir::LowerResult lowerAddress(const Expr &expr, LowerContext &ctx);
 ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
                                 LowerContext &ctx);
-bool supportsBlock(const BlockExpr &block, const SemanticAnalyzer &analyzer);
+ir::LowerResult lowerBoxNew(const CallExpr &call, LowerContext &ctx);
+ir::LowerResult lowerVecNew(const CallExpr &call, LowerContext &ctx);
+ir::LowerResult lowerVecBuiltinCall(const CallExpr &call, LowerContext &ctx);
+ir::LowerResult lowerVecPush(const std::string &vecPtr, TypeId elemType,
+                             const std::string &value, LowerContext &ctx);
+ir::LowerResult lowerVecRemove(const std::string &vecPtr, TypeId elemType,
+                               const std::string &index, LowerContext &ctx);
+ir::LowerResult lowerVecClone(TypeId vecType, const std::string &vecAddr,
+                              LowerContext &ctx);
+ir::LowerResult lowerCloneValue(TypeId type, const std::string &value,
+                                LowerContext &ctx);
+ir::LowerResult lowerVecIsEmpty(const std::string &vecPtr, LowerContext &ctx);
+ir::LowerResult lowerCloneStructFields(TypeId structType,
+                                       const std::string &selfPtr,
+                                       LowerContext &ctx);
+ir::LowerResult lowerEquality(TypeId type, const std::string &lhs,
+                              const std::string &rhs, LowerContext &ctx);
+ir::LowerResult lowerEqualityStructFields(TypeId structType,
+                                          const std::string &lhsPtr,
+                                          const std::string &rhsPtr,
+                                          LowerContext &ctx);
+ir::LowerResult coerceValueToType(ir::LowerResult value, TypeId actualType,
+                                  TypeId expectedType, LowerContext &ctx);
+ir::LowerResult lowerExprToType(const Expr &expr, TypeId expectedType,
+                                LowerContext &ctx);
+ir::LowerResult lowerReceiverValueToType(const Expr &expr, TypeId selfType,
+                                         LowerContext &ctx);
 
 ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
   const std::unordered_map<int, std::string> &paramValues = ctx.paramValues;
-  const std::string &returnType = ctx.returnType;
 
   if (dynamic_cast<const UnitLit *>(&expr)) {
     return unitResult();
@@ -241,11 +319,11 @@ ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
         const ConstVal *value = analyzer.constValue(id);
         if (value == nullptr) {
           return failResult();
-        }
-        if (value->type == ConstType::Bool) {
+        } else if (value->type == ConstType::Bool) {
           return valueResult(value->boolean ? "true" : "false");
+        } else {
+          return valueResult(std::to_string(value->value));
         }
-        return valueResult(std::to_string(value->value));
       }
     }
     if (path->segments.size() == 1) {
@@ -253,29 +331,18 @@ ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
       if (id == InvalidSymbol) {
         return failResult();
       }
-      auto itt = ctx.paramSlots.find(id);
-      if (itt != ctx.paramSlots.end()) {
+      std::string slot = builder.getSlot(id);
+      if (!slot.empty()) {
         TypeId type = analyzer.exprType(expr);
         std::string storage = types.storageType(type);
-        std::string value = builder.load(storage, itt->second);
+        std::string value = builder.load(storage, slot);
         return valueResult(fromStorageValue(ctx, type, value));
       }
       auto it = paramValues.find(id);
       if (it != paramValues.end()) {
         return valueResult(it->second);
       }
-      std::string slot = builder.getSlot(id);
-      if (slot.empty()) {
-        return failResult();
-      }
-      TypeId type = analyzer.exprType(expr);
-      std::string storage = types.storageType(type);
-      std::string value = builder.load(storage, slot);
-
-      if (storage == "i8" && types.valueType(type) == "i1") {
-        value = builder.cast("trunc", "i8", "i1", value);
-      }
-      return valueResult(value);
+      return failResult();
     }
     return failResult();
   } else if (auto *call = dynamic_cast<const CallExpr *>(&expr)) {
@@ -294,6 +361,8 @@ ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
     return lowerBreak(*brk, ctx);
   } else if (auto *cont = dynamic_cast<const ContinueExpr *>(&expr)) {
     return lowerContinue(*cont, ctx);
+  } else if (auto *assign = dynamic_cast<const AssignExpr *>(&expr)) {
+    return lowerAssign(*assign, ctx);
   } else if (auto *binary = dynamic_cast<const BinaryExpr *>(&expr)) {
     BinaryOp op = binary->op;
     if (op == BinaryOp::LAnd || op == BinaryOp::LOr) {
@@ -324,28 +393,44 @@ ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
     bool lhsRef = isRefType(lhsType, analyzer);
     bool rhsRef = isRefType(rhsType, analyzer);
     if ((op == BinaryOp::Eq || op == BinaryOp::Ne) && lhsRef && rhsRef) {
-      TypeId lhsTarget = stripRefs(lhsType, analyzer);
-      TypeId rhsTarget = stripRefs(rhsType, analyzer);
-      if (!isScalarValue(lhsTarget, analyzer) ||
-          !isScalarValue(rhsTarget, analyzer)) {
-        return failResult();
-      }
+      TypeId lhsTarget = strip(lhsType, analyzer);
+      TypeId rhsTarget = strip(rhsType, analyzer);
       lhs.value = derefValueToType(lhs.value, lhsType, ctx);
       rhs.value = derefValueToType(rhs.value, rhsType, ctx);
-      lhsType = lhsTarget;
-      std::string pred = (op == BinaryOp::Eq) ? "eq" : "ne";
-      return valueResult(
-          builder.icmp(pred, types.valueType(lhsType), lhs.value, rhs.value));
+      if (isScalarValue(lhsTarget, analyzer) &&
+          isScalarValue(rhsTarget, analyzer)) {
+        lhsType = lhsTarget;
+        std::string pred = (op == BinaryOp::Eq) ? "eq" : "ne";
+        return valueResult(
+            builder.icmp(pred, types.valueType(lhsType), lhs.value, rhs.value));
+      }
+      auto eq = lowerEquality(lhsTarget, lhs.value, rhs.value, ctx);
+      if (!eq.ok || eq.terminated || !eq.hasValue) {
+        return failResult();
+      } else if (op == BinaryOp::Ne) {
+        return valueResult(builder.binary("xor", "i1", eq.value, "true"));
+      }
+      return valueResult(eq.value);
     }
     if (op != BinaryOp::Eq && op != BinaryOp::Ne) {
       if (lhsRef) {
         lhs.value = derefValueToType(lhs.value, lhsType, ctx);
-        lhsType = stripRefs(lhsType, analyzer);
+        lhsType = strip(lhsType, analyzer);
       }
       if (rhsRef) {
         rhs.value = derefValueToType(rhs.value, rhsType, ctx);
-        rhsType = stripRefs(rhsType, analyzer);
+        rhsType = strip(rhsType, analyzer);
       }
+    }
+    if ((op == BinaryOp::Eq || op == BinaryOp::Ne) &&
+        !isScalarValue(lhsType, analyzer)) {
+      auto eq = lowerEquality(lhsType, lhs.value, rhs.value, ctx);
+      if (!eq.ok || eq.terminated || !eq.hasValue) {
+        return failResult();
+      } else if (op == BinaryOp::Ne) {
+        return valueResult(builder.binary("xor", "i1", eq.value, "true"));
+      }
+      return valueResult(eq.value);
     }
     const TypeInfo &operandInfo = analyzer.typeArena().get(lhsType);
     bool signedOp = isSignedKind(operandInfo.kind);
@@ -445,7 +530,7 @@ ir::LowerResult lowerExpr(const Expr &expr, LowerContext &ctx) {
       TypeId operandType = analyzer.exprType(*unary->operand);
       if (isRefType(operandType, analyzer)) {
         value.value = derefValueToType(value.value, operandType, ctx);
-        operandType = stripRefs(operandType, analyzer);
+        operandType = strip(operandType, analyzer);
       }
       TypeId type = analyzer.exprType(expr);
       std::string irType = types.valueType(type);
@@ -511,10 +596,6 @@ ir::LowerResult lowerPlace(const Expr &expr, LowerContext &ctx) {
     if (id == InvalidSymbol) {
       return failResult();
     }
-    auto it = ctx.paramSlots.find(id);
-    if (it != ctx.paramSlots.end()) {
-      return valueResult(it->second);
-    }
     std::string slot = builder.getSlot(id);
     if (slot.empty()) {
       return failResult();
@@ -525,8 +606,7 @@ ir::LowerResult lowerPlace(const Expr &expr, LowerContext &ctx) {
     if (!base.ok || !base.hasValue) {
       return failResult();
     }
-    TypeId receiverType =
-        stripRefs(analyzer.exprType(*field->receiver), analyzer);
+    TypeId receiverType = strip(analyzer.exprType(*field->receiver), analyzer);
     if (receiverType == InvalidType) {
       return failResult();
     }
@@ -551,18 +631,23 @@ ir::LowerResult lowerPlace(const Expr &expr, LowerContext &ctx) {
     if (!indexValue.ok || indexValue.terminated || !indexValue.hasValue) {
       return failResult();
     }
-    TypeId baseType = stripRefs(analyzer.exprType(*index->base), analyzer);
+    TypeId baseType = strip(analyzer.exprType(*index->base), analyzer);
     if (baseType == InvalidType) {
       return failResult();
     }
     const TypeInfo &info = analyzer.typeArena().get(baseType);
-    if (info.kind != TypeKind::Array) {
-      return failResult();
+    if (info.kind == TypeKind::Array) {
+      std::string arrayType = types.valueType(baseType);
+      std::string elemPtr = builder.gep(arrayType, base.value,
+                                        {"i32 0", "i32 " + indexValue.value});
+      return valueResult(elemPtr);
+    } else if (info.kind == TypeKind::Vec) {
+      std::string dataAddr = vecDataPtr(base.value, ctx);
+      std::string data = builder.load("ptr", dataAddr);
+      std::string elemPtr = builder.gep(types.storageType(info.inner), data,
+                                        {"i32 " + indexValue.value});
+      return valueResult(elemPtr);
     }
-    std::string arrayType = types.valueType(baseType);
-    std::string elemPtr = builder.gep(arrayType, base.value,
-                                      {"i32 0", "i32 " + indexValue.value});
-    return valueResult(elemPtr);
   } else if (auto *unary = dynamic_cast<const UnaryExpr *>(&expr)) {
     if (unary->op == UnaryOp::Deref) {
       auto value = lowerExpr(*unary->operand, ctx);
@@ -579,11 +664,27 @@ ir::LowerResult lowerAssign(const AssignExpr &assign, LowerContext &ctx) {
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
 
-  auto place = lowerPlace(*assign.lhs, ctx);
   TypeId lhsType = analyzer.exprType(*assign.lhs);
-  if (!place.ok || !place.hasValue ||
-      !isLowerableValueOrNever(lhsType, analyzer)) {
+  if (!isLowerableValueOrNever(lhsType, analyzer)) {
     return failResult();
+  }
+  std::string storage = types.storageType(lhsType);
+  if (assign.op == AssignOp::Assign) {
+    auto rhs = lowerExprToType(*assign.rhs, lhsType, ctx);
+    if (!rhs.ok) {
+      return failResult();
+    } else if (rhs.terminated) {
+      return rhs;
+    } else if (!rhs.hasValue) {
+      return failResult();
+    }
+    auto place = lowerPlace(*assign.lhs, ctx);
+    if (!place.ok || !place.hasValue) {
+      return failResult();
+    }
+    builder.store(storage, toStorageValue(ctx, lhsType, rhs.value),
+                  place.value);
+    return unitResult();
   }
   auto rhs = lowerExpr(*assign.rhs, ctx);
   if (!rhs.ok) {
@@ -593,14 +694,9 @@ ir::LowerResult lowerAssign(const AssignExpr &assign, LowerContext &ctx) {
   } else if (!rhs.hasValue) {
     return failResult();
   }
-  std::string storage = types.storageType(lhsType);
-  if (assign.op == AssignOp::Assign) {
-    std::string stored = rhs.value;
-    if (storage == "i8" && types.valueType(lhsType) == "i1") {
-      stored = builder.cast("zext", "i1", "i8", rhs.value);
-    }
-    builder.store(storage, stored, place.value);
-    return unitResult();
+  auto place = lowerPlace(*assign.lhs, ctx);
+  if (!place.ok || !place.hasValue) {
+    return failResult();
   }
   if (isScalarBool(lhsType, analyzer)) {
     std::string old8 = builder.load("i8", place.value);
@@ -669,23 +765,25 @@ ir::LowerResult lowerAssign(const AssignExpr &assign, LowerContext &ctx) {
 }
 ir::LowerResult lowerReturn(const ReturnExpr &ret, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
-  const std::string &returnType = ctx.returnType;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
 
   if (ret.value == nullptr) {
     builder.retVoid();
     return terminatedResult();
   }
-  auto ans = lowerExpr(*ret.value, ctx);
+  auto ans = lowerExprToType(*ret.value, ctx.returnTypeId, ctx);
   if (!ans.ok) {
     return failResult();
-  }
-  if (ans.hasValue) {
-    if (returnType == "void") {
+  } else if (ans.terminated) {
+    return ans;
+  } else if (ans.hasValue) {
+    if (ctx.returnType == "void") {
       return failResult();
     }
-    builder.ret(returnType, ans.value);
+    builder.ret(ctx.returnType, ans.value);
   } else {
-    if (returnType != "void") {
+    if (ctx.returnType != "void") {
       return failResult();
     }
     builder.retVoid();
@@ -709,7 +807,7 @@ ir::LowerResult lowerStmt(const Stmt &stmt, LowerContext &ctx) {
     if (sym == nullptr || sym->type == InvalidType) {
       return failResult();
     }
-    auto value = lowerExpr(*let->init, ctx);
+    auto value = lowerExprToType(*let->init, sym->type, ctx);
     if (!value.ok) {
       return failResult();
     } else if (value.terminated) {
@@ -719,78 +817,19 @@ ir::LowerResult lowerStmt(const Stmt &stmt, LowerContext &ctx) {
     }
     std::string storage = types.storageType(sym->type);
     std::string slot = builder.ensureSlot(id, let->name, storage);
-    std::string stored = value.value;
-    if (storage == "i8" && types.valueType(sym->type) == "i1") {
-      stored = builder.cast("zext", "i1", "i8", value.value);
-    }
-    builder.store(storage, stored, slot);
+    builder.store(storage, toStorageValue(ctx, sym->type, value.value), slot);
     return unitResult();
   } else if (auto *expr = dynamic_cast<const ExprStmt *>(&stmt)) {
-    if (auto *block = dynamic_cast<const BlockExpr *>(expr->expr.get())) {
-      auto result = lowerBlock(*block, ctx);
-      if (!result.ok) {
-        return failResult();
-      } else if (result.terminated) {
-        return result;
-      }
-      return unitResult();
-    } else if (auto *ifex = dynamic_cast<const IfExpr *>(expr->expr.get())) {
-      auto result = lowerIf(*ifex, ctx);
-      if (!result.ok) {
-        return failResult();
-      } else if (result.terminated) {
-        return result;
-      }
-      return unitResult();
-    } else if (auto *whileex =
-                   dynamic_cast<const WhileExpr *>(expr->expr.get())) {
-      auto result = lowerWhile(*whileex, ctx);
-      if (!result.ok) {
-        return failResult();
-      } else if (result.terminated) {
-        return result;
-      }
-      return unitResult();
-    } else if (auto *loop = dynamic_cast<const LoopExpr *>(expr->expr.get())) {
-      auto result = lowerLoop(*loop, ctx);
-      if (!result.ok) {
-        return failResult();
-      } else if (result.terminated) {
-        return result;
-      }
-      return unitResult();
-    } else if (auto *brk = dynamic_cast<const BreakExpr *>(expr->expr.get())) {
-      return lowerBreak(*brk, ctx);
-    } else if (auto *co =
-                   dynamic_cast<const ContinueExpr *>(expr->expr.get())) {
-      return lowerContinue(*co, ctx);
-    } else if (auto *ret = dynamic_cast<const ReturnExpr *>(expr->expr.get())) {
-      return lowerReturn(*ret, ctx);
-    } else if (auto *call = dynamic_cast<const CallExpr *>(expr->expr.get())) {
-      auto result = lowerCall(*call, ctx);
-      if (!result.ok) {
-        return failResult();
-      } else if (result.terminated) {
-        return result;
-      }
-      return unitResult();
-    } else if (auto *ass = dynamic_cast<const AssignExpr *>(expr->expr.get())) {
-      if (ass == nullptr) {
-        return failResult();
-      }
-      return lowerAssign(*ass, ctx);
-    }
     auto result = lowerExpr(*expr->expr, ctx);
-    if (!result.ok) {
-      return failResult();
-    } else if (result.terminated) {
+    if (!result.ok || result.terminated) {
       return result;
     }
     return unitResult();
   }
   return failResult();
 }
-ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx) {
+ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx,
+                           TypeId expectedType) {
   for (const auto &stmt : block.stmts) {
     auto result = lowerStmt(*stmt, ctx);
     if (!result.ok) {
@@ -802,15 +841,13 @@ ir::LowerResult lowerBlock(const BlockExpr &block, LowerContext &ctx) {
   if (block.tail == nullptr) {
     return unitResult();
   }
-  if (auto *ret = dynamic_cast<const ReturnExpr *>(block.tail.get())) {
-    return lowerReturn(*ret, ctx);
-  }
-  return lowerExpr(*block.tail, ctx);
+  return lowerExprToType(*block.tail, expectedType, ctx);
 }
 ir::LowerResult lowerIf(const IfExpr &ifex, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
+
   auto cond = lowerExpr(*ifex.cond, ctx);
   if (!cond.ok) {
     return failResult();
@@ -834,7 +871,7 @@ ir::LowerResult lowerIf(const IfExpr &ifex, LowerContext &ctx) {
   std::string mergeLabel = builder.newLabel("merge");
   builder.condBranch(cond.value, thenLabel, elseLabel);
   builder.startBlock(thenLabel);
-  auto thenResult = lowerBlock(*ifex.then, ctx);
+  auto thenResult = lowerBlock(*ifex.then, ctx, resultType);
   if (!thenResult.ok) {
     return failResult();
   }
@@ -851,19 +888,12 @@ ir::LowerResult lowerIf(const IfExpr &ifex, LowerContext &ctx) {
   ir::LowerResult elseResult;
   if (ifex.elseBranch == nullptr) {
     elseResult = unitResult();
-  } else if (auto *block =
-                 dynamic_cast<const BlockExpr *>(ifex.elseBranch.get())) {
-    elseResult = lowerBlock(*block, ctx);
-  } else if (auto *innerif =
-                 dynamic_cast<const IfExpr *>(ifex.elseBranch.get())) {
-    elseResult = lowerExpr(*innerif, ctx);
   } else {
-    return failResult();
+    elseResult = lowerExprToType(*ifex.elseBranch, resultType, ctx);
   }
   if (!elseResult.ok) {
     return failResult();
-  }
-  if (!elseResult.terminated) {
+  } else if (!elseResult.terminated) {
     if (hasValue) {
       builder.store(types.valueType(resultType), elseResult.value, resultSlot);
     }
@@ -886,15 +916,21 @@ ir::LowerResult lowerBreak(const BreakExpr &brk, LowerContext &ctx) {
   bool hasResult = (loop.resultType != InvalidType &&
                     !isUnitType(loop.resultType, ctx.analyzer));
   if (brk.value != nullptr) {
-    if (!hasResult || loop.resultSlot.empty()) {
+    auto value = lowerExprToType(*brk.value, loop.resultType, ctx);
+    if (!value.ok) {
+      return failResult();
+    } else if (value.terminated) {
+      return value;
+    }
+    if (hasResult) {
+      if (!value.hasValue || loop.resultSlot.empty()) {
+        return failResult();
+      }
+      ctx.builder.store(ctx.valueType(loop.resultType), value.value,
+                        loop.resultSlot);
+    } else if (value.hasValue) {
       return failResult();
     }
-    auto value = lowerExpr(*brk.value, ctx);
-    if (!value.ok || !value.hasValue) {
-      return failResult();
-    }
-    ctx.builder.store(ctx.valueType(loop.resultType), value.value,
-                      loop.resultSlot);
   } else if (hasResult) {
     return failResult();
   }
@@ -912,6 +948,7 @@ ir::LowerResult lowerWhile(const WhileExpr &whileex, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
+
   std::string condLabel = builder.newLabel("cond");
   std::string bodyLabel = builder.newLabel("body");
   std::string exitLabel = builder.newLabel("exit");
@@ -926,7 +963,7 @@ ir::LowerResult lowerWhile(const WhileExpr &whileex, LowerContext &ctx) {
     return failResult();
   }
   builder.condBranch(condResult.value, bodyLabel, exitLabel);
-  ctx.loops.push_back(LoopContext{exitLabel, condLabel, "", InvalidType, true});
+  ctx.loops.push_back(LoopContext{exitLabel, condLabel, "", InvalidType});
   builder.startBlock(bodyLabel);
   auto bodyResult = lowerBlock(*whileex.body, ctx);
   if (!bodyResult.ok) {
@@ -944,6 +981,7 @@ ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
+
   auto resultType = analyzer.exprType(loop);
   TypeKind kind = analyzer.typeArena().get(resultType).kind;
   bool hasValue = (kind != TypeKind::Unit && kind != TypeKind::Never);
@@ -960,8 +998,7 @@ ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx) {
   if (!bodyResult.ok) {
     ctx.loops.pop_back();
     return failResult();
-  }
-  if (!bodyResult.terminated) {
+  } else if (!bodyResult.terminated) {
     builder.branch(bodyLabel);
   }
   ctx.loops.pop_back();
@@ -976,7 +1013,9 @@ ir::LowerResult lowerLoop(const LoopExpr &loop, LowerContext &ctx) {
   }
 }
 ir::LowerResult lowerLazyBool(const BinaryExpr &expr, LowerContext &ctx) {
-  auto &builder = ctx.builder;
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
 
   BinaryOp op = expr.op;
   auto lhs = lowerExpr(*expr.lhs, ctx);
@@ -1019,6 +1058,33 @@ ir::LowerResult lowerLazyBool(const BinaryExpr &expr, LowerContext &ctx) {
   return valueResult(builder.load("i1", resultSlot));
 }
 ir::LowerResult lowerCall(const CallExpr &call, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  if (isBoxNewCall(call)) {
+    return lowerBoxNew(call, ctx);
+  } else if (isVecNewCall(call)) {
+    return lowerVecNew(call, ctx);
+  } else if (isBoxCloneCall(call) || isVecCloneCall(call)) {
+    if (call.args.size() != 1) {
+      return failResult();
+    }
+    TypeId selfType = analyzer.exprType(call);
+    if (!isBoxType(selfType, analyzer) && !isVecType(selfType, analyzer)) {
+      return failResult();
+    }
+    auto receiver = lowerReceiverValueToType(*call.args[0], selfType, ctx);
+    if (!receiver.ok || receiver.terminated) {
+      return receiver;
+    }
+    if (!receiver.hasValue) {
+      return failResult();
+    }
+    return lowerCloneValue(selfType, receiver.value, ctx);
+  } else if (isVecBuiltinCall(call)) {
+    return lowerVecBuiltinCall(call, ctx);
+  }
   auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
   if (path == nullptr) {
     return failResult();
@@ -1031,6 +1097,25 @@ ir::LowerResult lowerCall(const CallExpr &call, LowerContext &ctx) {
   if (sym == nullptr) {
     return failResult();
   }
+  if (sym->kind == SymbolKind::AssocFn && sym->decl == nullptr &&
+      sym->name == "clone") {
+    if (call.args.size() != 1) {
+      return failResult();
+    }
+    auto self = lowerAddress(*call.args[0], ctx);
+    if (!self.ok || self.terminated || !self.hasValue) {
+      return failResult();
+    }
+    const Symbol *owner = analyzer.symbol(sym->owner);
+    if (owner == nullptr) {
+      return failResult();
+    }
+    TypeId result = analyzer.exprType(call);
+    std::string callResult =
+        builder.call(types.valueType(result), "_rx_clone_" + owner->name,
+                     {"ptr " + self.value});
+    return valueResult(callResult);
+  }
   const std::vector<TypeId> *params = ctx.analyzer.paramTypes(target);
   TypeId returnId = ctx.analyzer.returnType(target);
   if (params == nullptr || params->size() != call.args.size() ||
@@ -1039,7 +1124,8 @@ ir::LowerResult lowerCall(const CallExpr &call, LowerContext &ctx) {
   }
   std::vector<std::string> args;
   for (std::size_t i = 0; i < call.args.size(); ++i) {
-    auto arg = lowerExpr(*call.args[i], ctx);
+    TypeId paramType = (*params)[i];
+    auto arg = lowerExprToType(*call.args[i], paramType, ctx);
     if (!arg.ok) {
       return failResult();
     } else if (arg.terminated) {
@@ -1047,7 +1133,8 @@ ir::LowerResult lowerCall(const CallExpr &call, LowerContext &ctx) {
     } else if (!arg.hasValue) {
       return failResult();
     }
-    std::string argType = ctx.types.valueType((*params)[i]);
+
+    std::string argType = ctx.types.valueType(paramType);
     if (argType.empty()) {
       return failResult();
     }
@@ -1078,16 +1165,8 @@ ir::LowerResult lowerStructLit(const StructLit &lit, LowerContext &ctx) {
     return failResult();
   }
   std::string irType = types.valueType(type);
-  std::string temp = ctx.builder.ensureTemp(types.storageType(type));
+  std::string temp = builder.ensureTemp(types.storageType(type));
   for (const auto &init : lit.fields) {
-    auto value = lowerExpr(*init.value, ctx);
-    if (!value.ok) {
-      return failResult();
-    } else if (value.terminated) {
-      return value;
-    } else if (!value.hasValue) {
-      return failResult();
-    }
     int idx = analyzer.structFieldIndex(info.structId, init.name);
     if (idx < 0) {
       return failResult();
@@ -1095,10 +1174,17 @@ ir::LowerResult lowerStructLit(const StructLit &lit, LowerContext &ctx) {
     TypeId fieldType = (*analyzer.structFields(info.structId))[idx];
     std::string fieldPtr =
         builder.gep(irType, temp, {"i32 0", "i32 " + std::to_string(idx)});
+    auto value = lowerExprToType(*init.value, fieldType, ctx);
+    if (!value.ok) {
+      return failResult();
+    } else if (value.terminated) {
+      return value;
+    } else if (!value.hasValue) {
+      return failResult();
+    }
     builder.store(types.storageType(fieldType),
                   toStorageValue(ctx, fieldType, value.value), fieldPtr);
   }
-
   return valueResult(ctx.builder.load(ctx.types.storageType(type), temp));
 }
 ir::LowerResult lowerArrayLit(const ArrayLit &lit, LowerContext &ctx) {
@@ -1117,9 +1203,9 @@ ir::LowerResult lowerArrayLit(const ArrayLit &lit, LowerContext &ctx) {
   TypeId inner = info.inner;
   int len = info.len;
   std::string arrayType = types.valueType(type);
-  std::string temp = ctx.builder.ensureTemp(ctx.types.storageType(type));
+  std::string temp = ctx.builder.ensureTemp(types.storageType(type));
   for (std::size_t i = 0; i < lit.elements.size(); ++i) {
-    auto value = lowerExpr(*lit.elements[i], ctx);
+    auto value = lowerExprToType(*lit.elements[i], info.inner, ctx);
     if (!value.ok) {
       return failResult();
     } else if (value.terminated) {
@@ -1128,11 +1214,11 @@ ir::LowerResult lowerArrayLit(const ArrayLit &lit, LowerContext &ctx) {
       return failResult();
     }
     std::string elemPtr =
-        ctx.builder.gep(arrayType, temp, {"i32 0", "i32 " + std::to_string(i)});
-    ctx.builder.store(ctx.types.storageType(info.inner),
-                      toStorageValue(ctx, info.inner, value.value), elemPtr);
+        builder.gep(arrayType, temp, {"i32 0", "i32 " + std::to_string(i)});
+    builder.store(types.storageType(info.inner),
+                  toStorageValue(ctx, info.inner, value.value), elemPtr);
   }
-  return valueResult(ctx.builder.load(ctx.types.storageType(type), temp));
+  return valueResult(builder.load(types.storageType(type), temp));
 }
 ir::LowerResult lowerArrayRepeat(const ArrayRepeat &arr, LowerContext &ctx) {
   ir::IrBuilder &builder = ctx.builder;
@@ -1148,8 +1234,7 @@ ir::LowerResult lowerArrayRepeat(const ArrayRepeat &arr, LowerContext &ctx) {
     return failResult();
   }
   TypeId inner = info.inner;
-  int len = info.len;
-  auto value = lowerExpr(*arr.elem, ctx);
+  auto value = lowerExprToType(*arr.elem, inner, ctx);
   if (!value.ok) {
     return failResult();
   } else if (value.terminated) {
@@ -1158,14 +1243,14 @@ ir::LowerResult lowerArrayRepeat(const ArrayRepeat &arr, LowerContext &ctx) {
     return failResult();
   }
   std::string arrayType = types.valueType(type);
-  std::string temp = ctx.builder.ensureTemp(ctx.types.storageType(type));
-  for (int i = 0; i < len; ++i) {
+  std::string temp = builder.ensureTemp(types.storageType(type));
+  for (int i = 0; i < info.len; ++i) {
     std::string ptr =
-        ctx.builder.gep(arrayType, temp, {"i32 0", "i32 " + std::to_string(i)});
-    ctx.builder.store(ctx.types.storageType(info.inner),
-                      toStorageValue(ctx, info.inner, value.value), ptr);
+        builder.gep(arrayType, temp, {"i32 0", "i32 " + std::to_string(i)});
+    builder.store(types.storageType(info.inner),
+                  toStorageValue(ctx, info.inner, value.value), ptr);
   }
-  return valueResult(ctx.builder.load(ctx.types.storageType(type), temp));
+  return valueResult(builder.load(types.storageType(type), temp));
 }
 ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
                                 LowerContext &ctx) {
@@ -1173,8 +1258,81 @@ ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
   const ir::TypeMapper &types = ctx.types;
   const SemanticAnalyzer &analyzer = ctx.analyzer;
 
+  int target = analyzer.methodSymbol(method);
+  TypeId baseType = strip(analyzer.exprType(*method.receiver), analyzer);
+  if (target != InvalidSymbol) {
+    const Symbol *sym = analyzer.symbol(target);
+    if (sym != nullptr && sym->kind == SymbolKind::AssocFn &&
+        sym->decl == nullptr && sym->name == "clone") {
+      auto self = lowerAddress(*method.receiver, ctx);
+      if (!self.ok || self.terminated || !self.hasValue) {
+        return failResult();
+      }
+      const Symbol *owner = analyzer.symbol(sym->owner);
+      if (owner == nullptr) {
+        return failResult();
+      }
+      TypeId result = analyzer.exprType(method);
+      std::string call =
+          builder.call(types.valueType(result), "_rx_clone_" + owner->name,
+                       {"ptr " + self.value});
+      return valueResult(call);
+    }
+  }
+  if (target == InvalidSymbol && isVecType(baseType, analyzer)) {
+    const TypeInfo &info = analyzer.typeArena().get(baseType);
+    TypeId elemType = info.inner;
+    if (method.method == "is_empty" && method.args.empty()) {
+      auto vec = lowerAddress(*method.receiver, ctx);
+      if (!vec.ok || vec.terminated || !vec.hasValue) {
+        return failResult();
+      }
+      return lowerVecIsEmpty(vec.value, ctx);
+    }
+    if (method.method == "push" && method.args.size() == 1) {
+      auto vec = lowerAddress(*method.receiver, ctx);
+      if (!vec.ok || vec.terminated || !vec.hasValue) {
+        return failResult();
+      }
+      auto value = lowerExprToType(*method.args[0], elemType, ctx);
+      if (!value.ok) {
+        return failResult();
+      } else if (value.terminated) {
+        return value;
+      } else if (!value.hasValue) {
+        return failResult();
+      }
+      return lowerVecPush(vec.value, elemType, value.value, ctx);
+    }
+    if (method.method == "remove" && method.args.size() == 1) {
+      auto vec = lowerAddress(*method.receiver, ctx);
+      if (!vec.ok || vec.terminated || !vec.hasValue) {
+        return failResult();
+      }
+      auto index = lowerExpr(*method.args[0], ctx);
+      if (!index.ok) {
+        return failResult();
+      } else if (index.terminated) {
+        return index;
+      } else if (!index.hasValue) {
+        return failResult();
+      }
+      return lowerVecRemove(vec.value, elemType, index.value, ctx);
+    }
+  }
   if (method.method == "len" && method.args.empty()) {
-    TypeId receiverType = analyzer.exprType(*method.receiver);
+    TypeId vecType = strip(analyzer.exprType(*method.receiver), analyzer);
+    if (isVecType(vecType, analyzer)) {
+      auto vec = lowerAddress(*method.receiver, ctx);
+      if (!vec.ok || vec.terminated || !vec.hasValue) {
+        return failResult();
+      }
+      std::string len = builder.load("i32", vecLenPtr(vec.value, ctx));
+      return valueResult(len);
+    }
+  }
+  if (method.method == "len" && method.args.empty()) {
+    TypeId receiverType = strip(analyzer.exprType(*method.receiver), analyzer);
     if (receiverType != InvalidType &&
         analyzer.typeArena().get(receiverType).kind == TypeKind::Array) {
       auto receiver = lowerExpr(*method.receiver, ctx);
@@ -1187,9 +1345,18 @@ ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
       return valueResult(std::to_string(len));
     }
   }
-  int target = analyzer.methodSymbol(method);
-  if (target == InvalidSymbol) {
-    return failResult();
+  TypeId resultType = analyzer.exprType(method);
+  if (target == InvalidSymbol && method.method == "clone" &&
+      method.args.empty()) {
+    auto receiver = lowerReceiverValueToType(*method.receiver, resultType, ctx);
+    if (!receiver.ok || receiver.terminated) {
+      return receiver;
+    }
+    if (!receiver.hasValue) {
+      return failResult();
+    }
+
+    return lowerCloneValue(resultType, receiver.value, ctx);
   }
   const Symbol *sym = analyzer.symbol(target);
   const std::vector<TypeId> *params = analyzer.paramTypes(target);
@@ -1230,7 +1397,8 @@ ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
     args.push_back(types.valueType(receiverType) + " " + receiver.value);
   }
   for (std::size_t i = 0; i < method.args.size(); ++i) {
-    auto arg = lowerExpr(*method.args[i], ctx);
+    TypeId paramType = (*params)[i + 1];
+    auto arg = lowerExprToType(*method.args[i], paramType, ctx);
     if (!arg.ok) {
       return failResult();
     } else if (arg.terminated) {
@@ -1238,7 +1406,6 @@ ir::LowerResult lowerMethodCall(const MethodCallExpr &method,
     } else if (!arg.hasValue) {
       return failResult();
     }
-    TypeId paramType = (*params)[i + 1];
     args.push_back(types.valueType(paramType) + " " + arg.value);
   }
   std::string retType = types.valueType(returnId);
@@ -1304,439 +1471,679 @@ ir::LowerResult lowerAddress(const Expr &expr, LowerContext &ctx) {
   }
   return lowerPlaceOrTemp(expr, ctx);
 }
+ir::LowerResult lowerBoxNew(const CallExpr &call, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
 
-bool supportsBinaryOp(BinaryOp op) {
-  switch (op) {
-  case BinaryOp::Add:
-  case BinaryOp::Sub:
-  case BinaryOp::Mul:
-  case BinaryOp::Div:
-  case BinaryOp::Rem:
-  case BinaryOp::BitAnd:
-  case BinaryOp::BitOr:
-  case BinaryOp::BitXor:
-  case BinaryOp::Shl:
-  case BinaryOp::Shr:
-  case BinaryOp::Eq:
-  case BinaryOp::Ne:
-  case BinaryOp::Lt:
-  case BinaryOp::Le:
-  case BinaryOp::Gt:
-  case BinaryOp::Ge:
-  case BinaryOp::LAnd:
-  case BinaryOp::LOr:
-    return true;
-  default:
-    return false;
+  if (call.args.size() != 1) {
+    return failResult();
   }
+  TypeId boxType = ctx.analyzer.exprType(call);
+  if (boxType == InvalidType) {
+    return failResult();
+  }
+  const TypeInfo &info = ctx.analyzer.typeArena().get(boxType);
+  if (info.kind != TypeKind::Box) {
+    return failResult();
+  }
+  TypeId inner = info.inner;
+  if (inner == InvalidType) {
+    return failResult();
+  }
+  auto value = lowerExprToType(*call.args[0], inner, ctx);
+  if (!value.ok) {
+    return failResult();
+  } else if (value.terminated) {
+    return value;
+  } else if (!value.hasValue) {
+    return failResult();
+  }
+  uint32_t size = analyzer.typeSize(inner);
+  uint32_t align = analyzer.typeAlign(inner);
+  std::string raw = builder.call(
+      "ptr", "__rx_alloc",
+      {"i32 " + std::to_string(size), "i32 " + std::to_string(align)});
+  std::string storage = types.storageType(inner);
+  std::string stored = toStorageValue(ctx, inner, value.value);
+  builder.store(storage, stored, raw);
+  return valueResult(raw);
 }
-bool supportsExpr(const Expr &expr, const SemanticAnalyzer &analyzer);
-bool supportsPlace(const Expr &expr, const SemanticAnalyzer &analyzer) {
-  if (auto *path = dynamic_cast<const PathExpr *>(&expr)) {
-    if (path->segments.size() != 1) {
-      return false;
-    }
-    int id = analyzer.bindingOf(*path);
-    if (id == InvalidSymbol) {
-      return false;
-    }
-    const Symbol *sym = analyzer.symbol(id);
-    if (sym == nullptr) {
-      return false;
-    }
-    if (sym->kind == SymbolKind::Local) {
-      return true;
-    }
-    if (sym->kind == SymbolKind::Param) {
-      return isStructType(sym->type, analyzer) ||
-             isArrayType(sym->type, analyzer);
-    }
-    return false;
+ir::LowerResult lowerVecNew(const CallExpr &call, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  if (!call.args.empty()) {
+    return failResult();
   }
-
-  if (auto *field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
-    if (!supportsPlace(*field->receiver, analyzer) &&
-        !supportsExpr(*field->receiver, analyzer)) {
-      return false;
-    }
-
-    TypeId receiverType =
-        stripRefs(analyzer.exprType(*field->receiver), analyzer);
-    if (receiverType == InvalidType) {
-      return false;
-    }
-
-    const TypeInfo &info = analyzer.typeArena().get(receiverType);
-    if (info.kind != TypeKind::Struct) {
-      return false;
-    }
-
-    return analyzer.structFieldIndex(info.structId, field->field) >= 0;
+  TypeId vecType = analyzer.exprType(call);
+  if (vecType == InvalidType) {
+    return failResult();
   }
-
-  if (auto *index = dynamic_cast<const IndexExpr *>(&expr)) {
-    if (!supportsPlace(*index->base, analyzer) &&
-        !supportsExpr(*index->base, analyzer)) {
-      return false;
-    }
-
-    TypeId baseType = stripRefs(analyzer.exprType(*index->base), analyzer);
-    if (baseType == InvalidType) {
-      return false;
-    }
-
-    const TypeInfo &info = analyzer.typeArena().get(baseType);
-    if (info.kind != TypeKind::Array) {
-      return false;
-    }
-
-    return supportsExpr(*index->index, analyzer);
+  const TypeInfo &info = analyzer.typeArena().get(vecType);
+  if (info.kind != TypeKind::Vec || info.inner == InvalidType) {
+    return failResult();
   }
-
-  if (auto *unary = dynamic_cast<const UnaryExpr *>(&expr)) {
-    if (unary->op != UnaryOp::Deref) {
-      return false;
-    }
-    return isRefOrBoxType(analyzer.exprType(*unary->operand), analyzer) &&
-           supportsExpr(*unary->operand, analyzer);
+  if (!isLowerableValue(info.inner, analyzer)) {
+    return failResult();
   }
-
-  return false;
+  std::string storage = types.storageType(vecType);
+  if (storage.empty()) {
+    return failResult();
+  }
+  std::string temp = builder.ensureTemp(storage);
+  builder.store("ptr", "null", vecDataPtr(temp, ctx));
+  builder.store("i32", "0", vecLenPtr(temp, ctx));
+  builder.store("i32", "0", vecCapPtr(temp, ctx));
+  return valueResult(builder.load(storage, temp));
 }
-bool supportsExpr(const Expr &expr, const SemanticAnalyzer &analyzer) {
-  if (auto *method = dynamic_cast<const MethodCallExpr *>(&expr)) {
-    if (method->method == "len" && method->args.empty()) {
-      TypeId receiverType = analyzer.exprType(*method->receiver);
-      if (receiverType == InvalidType) {
-        return false;
+ir::LowerResult lowerVecIsEmpty(const std::string &vecPtr, LowerContext &ctx) {
+  std::string len = ctx.builder.load("i32", vecLenPtr(vecPtr, ctx));
+  return valueResult(ctx.builder.icmp("eq", "i32", len, "0"));
+}
+ir::LowerResult lowerVecPush(const std::string &vecPtr, TypeId elemType,
+                             const std::string &value, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  const ir::TypeMapper &types = ctx.types;
+
+  uint32_t elemSize = analyzer.typeSize(elemType);
+  uint32_t elemAlign = analyzer.typeAlign(elemType);
+  std::string dataAddr = vecDataPtr(vecPtr, ctx);
+  std::string lenAddr = vecLenPtr(vecPtr, ctx);
+  std::string capAddr = vecCapPtr(vecPtr, ctx);
+  std::string len = builder.load("i32", lenAddr);
+  std::string cap = builder.load("i32", capAddr);
+  std::string hasRoom = builder.icmp("ult", "i32", len, cap);
+  std::string growLabel = builder.newLabel("vec.push.grow");
+  std::string doubleLabel = builder.newLabel("vec.push.double");
+  std::string allocLabel = builder.newLabel("vec.push.alloc");
+  std::string copyLabel = builder.newLabel("vec.push.copy");
+  std::string updateLabel = builder.newLabel("vec.push.update");
+  std::string readyLabel = builder.newLabel("vec.push.ready");
+  builder.condBranch(hasRoom, readyLabel, growLabel);
+  builder.startBlock(growLabel);
+  std::string newCapSlot = builder.ensureTemp("i32");
+  builder.store("i32", "4", newCapSlot);
+  std::string empty = builder.icmp("eq", "i32", cap, "0");
+  builder.condBranch(empty, allocLabel, doubleLabel);
+  builder.startBlock(doubleLabel);
+  std::string doubledCap = builder.binary("mul", "i32", cap, "2");
+  builder.store("i32", doubledCap, newCapSlot);
+  builder.branch(allocLabel);
+  builder.startBlock(allocLabel);
+  std::string newCap = builder.load("i32", newCapSlot);
+  std::string bytes =
+      builder.binary("mul", "i32", newCap, std::to_string(elemSize));
+  std::string newData =
+      builder.call("ptr", "__rx_alloc",
+                   {"i32 " + bytes, "i32 " + std::to_string(elemAlign)});
+  std::string hasOld = builder.icmp("ne", "i32", len, "0");
+  builder.condBranch(hasOld, copyLabel, updateLabel);
+  builder.startBlock(copyLabel);
+  std::string data = builder.load("ptr", dataAddr);
+  std::string oldBytes =
+      builder.binary("mul", "i32", len, std::to_string(elemSize));
+  builder.call("ptr", "memmove",
+               {"ptr " + newData, "ptr " + data, "i32 " + oldBytes});
+  builder.branch(updateLabel);
+  builder.startBlock(updateLabel);
+  builder.store("ptr", newData, dataAddr);
+  builder.store("i32", newCap, capAddr);
+  builder.branch(readyLabel);
+  builder.startBlock(readyLabel);
+  std::string finalData = builder.load("ptr", dataAddr);
+  std::string elemPtr =
+      builder.gep(types.storageType(elemType), finalData, {"i32 " + len});
+  builder.store(types.storageType(elemType),
+                toStorageValue(ctx, elemType, value), elemPtr);
+  std::string newLen = builder.binary("add", "i32", len, "1");
+  builder.store("i32", newLen, lenAddr);
+  return unitResult();
+}
+ir::LowerResult lowerVecRemove(const std::string &vecPtr, TypeId elemType,
+                               const std::string &index, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  const ir::TypeMapper &types = ctx.types;
+
+  uint32_t elemSize = analyzer.typeSize(elemType);
+  std::string dataAddr = vecDataPtr(vecPtr, ctx);
+  std::string lenAddr = vecLenPtr(vecPtr, ctx);
+  std::string data = builder.load("ptr", dataAddr);
+  std::string len = builder.load("i32", lenAddr);
+  std::string elemPtr =
+      builder.gep(types.storageType(elemType), data, {"i32 " + index});
+  std::string removedStorage =
+      builder.load(types.storageType(elemType), elemPtr);
+  std::string removed = fromStorageValue(ctx, elemType, removedStorage);
+  std::string tail = builder.binary(
+      "sub", "i32", builder.binary("sub", "i32", len, index), "1");
+  std::string hasTail = builder.icmp("ne", "i32", tail, "0");
+  std::string moveLabel = builder.newLabel("vec.remove.move");
+  std::string doneLabel = builder.newLabel("vec.remove.done");
+  builder.condBranch(hasTail, moveLabel, doneLabel);
+  builder.startBlock(moveLabel);
+  std::string srcIndex = builder.binary("add", "i32", index, "1");
+  std::string srcPtr =
+      builder.gep(types.storageType(elemType), data, {"i32 " + srcIndex});
+  std::string bytes =
+      builder.binary("mul", "i32", tail, std::to_string(elemSize));
+  builder.call("ptr", "memmove",
+               {"ptr " + elemPtr, "ptr " + srcPtr, "i32 " + bytes});
+  builder.branch(doneLabel);
+  builder.startBlock(doneLabel);
+  std::string newLen = builder.binary("sub", "i32", len, "1");
+  builder.store("i32", newLen, lenAddr);
+  return valueResult(removed);
+}
+ir::LowerResult lowerVecBuiltinCall(const CallExpr &call, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  const ir::TypeMapper &types = ctx.types;
+
+  auto *path = dynamic_cast<const PathExpr *>(call.callee.get());
+  if (path == nullptr || path->segments.size() != 2) {
+    return failResult();
+  }
+  const std::string &name = path->segments[1].name;
+  if (name == "len" || name == "is_empty") {
+    if (call.args.size() != 1) {
+      return failResult();
+    }
+    TypeId vecType = strip(analyzer.exprType(*call.args[0]), analyzer);
+    if (!isVecType(vecType, analyzer)) {
+      return failResult();
+    }
+    auto vec = lowerAddress(*call.args[0], ctx);
+    if (!vec.ok || vec.terminated || !vec.hasValue) {
+      return failResult();
+    }
+    if (name == "len") {
+      return valueResult(builder.load("i32", vecLenPtr(vec.value, ctx)));
+    }
+    return lowerVecIsEmpty(vec.value, ctx);
+  }
+  if (name == "push") {
+    if (call.args.size() != 2) {
+      return failResult();
+    }
+    TypeId vecType = strip(analyzer.exprType(*call.args[0]), analyzer);
+    if (!isVecType(vecType, analyzer)) {
+      return failResult();
+    }
+    TypeId elemType = analyzer.typeArena().get(vecType).inner;
+    auto vec = lowerAddress(*call.args[0], ctx);
+    if (!vec.ok || vec.terminated || !vec.hasValue) {
+      return failResult();
+    }
+    auto value = lowerExprToType(*call.args[1], elemType, ctx);
+    if (!value.ok) {
+      return failResult();
+    } else if (value.terminated) {
+      return value;
+    } else if (!value.hasValue) {
+      return failResult();
+    }
+    return lowerVecPush(vec.value, elemType, value.value, ctx);
+  }
+  if (name == "remove") {
+    if (call.args.size() != 2) {
+      return failResult();
+    }
+    TypeId vecType = strip(analyzer.exprType(*call.args[0]), analyzer);
+    if (!isVecType(vecType, analyzer)) {
+      return failResult();
+    }
+    TypeId elemType = analyzer.typeArena().get(vecType).inner;
+    auto vec = lowerAddress(*call.args[0], ctx);
+    if (!vec.ok || vec.terminated || !vec.hasValue) {
+      return failResult();
+    }
+    auto index = lowerExpr(*call.args[1], ctx);
+    if (!index.ok) {
+      return failResult();
+    } else if (index.terminated) {
+      return index;
+    } else if (!index.hasValue) {
+      return failResult();
+    }
+    return lowerVecRemove(vec.value, elemType, index.value, ctx);
+  }
+  return failResult();
+}
+ir::LowerResult lowerVecClone(TypeId vecType, const std::string &vecAddr,
+                              LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+  const ir::TypeMapper &types = ctx.types;
+
+  const TypeInfo &info = analyzer.typeArena().get(vecType);
+  TypeId elemType = info.inner;
+  uint32_t elemSize = analyzer.typeSize(elemType);
+  uint32_t elemAlign = analyzer.typeAlign(elemType);
+  std::string dataAddr = vecDataPtr(vecAddr, ctx);
+  std::string lenAddr = vecLenPtr(vecAddr, ctx);
+  std::string data = builder.load("ptr", dataAddr);
+  std::string len = builder.load("i32", lenAddr);
+  std::string dataSlot = builder.ensureTemp("ptr");
+  builder.store("ptr", "null", dataSlot);
+  std::string hasData = builder.icmp("ne", "i32", len, "0");
+  std::string allocLabel = builder.newLabel("vec.clone.alloc");
+  std::string loopLabel = builder.newLabel("vec.clone.loop");
+  std::string bodyLabel = builder.newLabel("vec.clone.body");
+  std::string buildLabel = builder.newLabel("vec.clone.build");
+  builder.condBranch(hasData, allocLabel, buildLabel);
+  builder.startBlock(allocLabel);
+  std::string bytes =
+      builder.binary("mul", "i32", len, std::to_string(elemSize));
+  std::string newData =
+      builder.call("ptr", "__rx_alloc",
+                   {"i32 " + bytes, "i32 " + std::to_string(elemAlign)});
+  builder.store("ptr", newData, dataSlot);
+  std::string idxSlot = builder.ensureTemp("i32");
+  builder.store("i32", "0", idxSlot);
+  builder.branch(loopLabel);
+  builder.startBlock(loopLabel);
+  std::string idx = builder.load("i32", idxSlot);
+  std::string more = builder.icmp("ult", "i32", idx, len);
+  builder.condBranch(more, bodyLabel, buildLabel);
+  builder.startBlock(bodyLabel);
+  std::string srcPtr =
+      builder.gep(types.storageType(elemType), data, {"i32 " + idx});
+  std::string raw = builder.load(types.storageType(elemType), srcPtr);
+  std::string elem = fromStorageValue(ctx, elemType, raw);
+  auto cloned = lowerCloneValue(elemType, elem, ctx);
+  if (!cloned.ok) {
+    return failResult();
+  } else if (cloned.terminated) {
+    return cloned;
+  } else if (!cloned.hasValue) {
+    return failResult();
+  }
+  std::string dstPtr =
+      builder.gep(types.storageType(elemType), newData, {"i32 " + idx});
+  builder.store(types.storageType(elemType),
+                toStorageValue(ctx, elemType, cloned.value), dstPtr);
+  std::string nextIdx = builder.binary("add", "i32", idx, "1");
+  builder.store("i32", nextIdx, idxSlot);
+  builder.branch(loopLabel);
+  builder.startBlock(buildLabel);
+  std::string finalData = builder.load("ptr", dataSlot);
+  std::string temp = builder.ensureTemp("%struct.Vec");
+  builder.store("ptr", finalData, vecDataPtr(temp, ctx));
+  builder.store("i32", len, vecLenPtr(temp, ctx));
+  builder.store("i32", len, vecCapPtr(temp, ctx));
+  return valueResult(builder.load("%struct.Vec", temp));
+}
+ir::LowerResult lowerCloneValue(TypeId type, const std::string &value,
+                                LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  const TypeInfo &info = analyzer.typeArena().get(type);
+  auto kind = info.kind;
+  if (isScalarValue(type, analyzer) || kind == TypeKind::Ref) {
+    return valueResult(value);
+  } else if (kind == TypeKind::Unit) {
+    return unitResult();
+  } else if (kind == TypeKind::Never) {
+    return failResult();
+  } else if (kind == TypeKind::Box) {
+    TypeId inner = info.inner;
+    if (inner == InvalidType) {
+      return failResult();
+    }
+    std::string innerStorage = types.storageType(inner);
+    std::string raw = builder.load(innerStorage, value);
+    std::string innerValue = fromStorageValue(ctx, inner, raw);
+    auto cloned = lowerCloneValue(inner, innerValue, ctx);
+    if (!cloned.ok) {
+      return failResult();
+    } else if (cloned.terminated) {
+      return cloned;
+    } else if (!cloned.hasValue) {
+      return failResult();
+    }
+    uint32_t size = analyzer.typeSize(inner);
+    uint32_t align = analyzer.typeAlign(inner);
+    std::string dst = builder.call(
+        "ptr", "__rx_alloc",
+        {"i32 " + std::to_string(size), "i32 " + std::to_string(align)});
+    builder.store(innerStorage, toStorageValue(ctx, inner, cloned.value), dst);
+    return valueResult(dst);
+  } else if (kind == TypeKind::Vec) {
+    std::string storage = types.storageType(type);
+    std::string temp = builder.ensureTemp(storage);
+    builder.store(storage, value, temp);
+    return lowerVecClone(type, temp, ctx);
+  } else if (kind == TypeKind::Array) {
+    TypeId inner = info.inner;
+    if (inner == InvalidType) {
+      return failResult();
+    }
+    std::string arrayType = types.valueType(type);
+    std::string storage = types.storageType(type);
+    std::string temp = builder.ensureTemp(storage);
+    builder.store(storage, value, temp);
+    for (uint32_t i = 0; i < info.len; ++i) {
+      std::string index = std::to_string(i);
+      std::string elemPtr =
+          builder.gep(arrayType, temp, {"i32 0", "i32 " + index});
+      std::string raw = builder.load(types.storageType(inner), elemPtr);
+      std::string elem = fromStorageValue(ctx, inner, raw);
+      auto cloned = lowerCloneValue(inner, elem, ctx);
+      if (!cloned.ok) {
+        return failResult();
+      } else if (cloned.terminated) {
+        return cloned;
+      } else if (!cloned.hasValue) {
+        return failResult();
       }
-
-      const TypeInfo &info = analyzer.typeArena().get(receiverType);
-      if (info.kind != TypeKind::Array) {
-        return false;
-      }
-
-      return supportsExpr(*method->receiver, analyzer);
+      builder.store(types.storageType(inner),
+                    toStorageValue(ctx, inner, cloned.value), elemPtr);
     }
-
-    int target = analyzer.methodSymbol(*method);
-    if (target == InvalidSymbol) {
-      return false;
-    }
-
-    const Symbol *sym = analyzer.symbol(target);
-    const std::vector<TypeId> *params = analyzer.paramTypes(target);
-    if (sym == nullptr || params == nullptr || params->empty() ||
-        params->size() != method->args.size() + 1) {
-      return false;
-    }
-
-    if (!supportsExpr(*method->receiver, analyzer)) {
-      return false;
-    }
-
-    for (const auto &arg : method->args) {
-      if (!supportsExpr(*arg, analyzer)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (auto *stru = dynamic_cast<const StructLit *>(&expr)) {
-    TypeId type = analyzer.exprType(*stru);
-    if (type == InvalidType) {
-      return false;
-    }
-    const TypeInfo &info = analyzer.typeArena().get(type);
-    if (info.kind != TypeKind::Struct) {
-      return false;
-    }
-    const auto *fields = analyzer.structFields(info.structId);
-    if (fields == nullptr) {
-      return false;
-    }
-    for (const auto &init : stru->fields) {
-      if (!supportsExpr(*init.value, analyzer)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (auto *field = dynamic_cast<const FieldAccessExpr *>(&expr)) {
-    if (!supportsPlace(*field, analyzer)) {
-      return false;
-    }
-    return isLowerableValueOrNever(analyzer.exprType(*field), analyzer);
-  }
-  if (auto *array = dynamic_cast<const ArrayLit *>(&expr)) {
-    TypeId type = analyzer.exprType(*array);
-    if (type == InvalidType) {
-      return false;
-    }
-    const TypeInfo &info = analyzer.typeArena().get(type);
-    if (info.kind != TypeKind::Array) {
-      return false;
-    }
-    for (const auto &elem : array->elements) {
-      if (!supportsExpr(*elem, analyzer)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (auto *repeat = dynamic_cast<const ArrayRepeat *>(&expr)) {
-    TypeId type = analyzer.exprType(*repeat);
-    if (type == InvalidType) {
-      return false;
-    }
-    const TypeInfo &info = analyzer.typeArena().get(type);
-    if (info.kind != TypeKind::Array) {
-      return false;
-    }
-    return supportsExpr(*repeat->elem, analyzer);
-  }
-  if (auto *index = dynamic_cast<const IndexExpr *>(&expr)) {
-    if (!supportsPlace(*index, analyzer)) {
-      return false;
-    }
-    return isLowerableValueOrNever(analyzer.exprType(*index), analyzer);
-  }
-  if (auto *unary = dynamic_cast<const UnaryExpr *>(&expr)) {
-    if (unary->op == UnaryOp::Ref || unary->op == UnaryOp::RefMut) {
-      return supportsExpr(*unary->operand, analyzer);
-    }
-    if (unary->op == UnaryOp::Deref) {
-      TypeId operandType = analyzer.exprType(*unary->operand);
-      if (!isRefOrBoxType(operandType, analyzer)) {
-        return false;
-      }
-      return supportsExpr(*unary->operand, analyzer) &&
-             isLowerableValueOrNever(analyzer.exprType(*unary), analyzer);
-    }
-    if (unary->op != UnaryOp::Neg && unary->op != UnaryOp::Not) {
-      return false;
-    }
-    TypeId target = stripRefs(analyzer.exprType(*unary->operand), analyzer);
-    if (!isScalarValue(target, analyzer)) {
-      return false;
-    }
-    return supportsExpr(*unary->operand, analyzer);
-  }
-  if (auto *cast = dynamic_cast<const CastExpr *>(&expr)) {
-    return supportsExpr(*cast->expr, analyzer) &&
-           analyzer.exprType(*cast->expr) != InvalidType &&
-           analyzer.exprType(*cast) != InvalidType;
-  }
-  if (dynamic_cast<const UnitLit *>(&expr)) {
-    return true;
-  }
-  if (dynamic_cast<const IntLit *>(&expr)) {
-    return true;
-  }
-  if (auto *path = dynamic_cast<const PathExpr *>(&expr)) {
-    int id = analyzer.bindingOf(*path);
-    if (id == InvalidSymbol) {
-      return false;
-    }
-
-    const Symbol *sym = analyzer.symbol(id);
-    if (sym != nullptr &&
-        (sym->kind == SymbolKind::Const ||
-         sym->kind == SymbolKind::AssocConst)) {
-      return analyzer.constValue(id) != nullptr;
-    }
-
-    return path->segments.size() == 1;
-  }
-  if (dynamic_cast<const BoolLit *>(&expr)) {
-    return true;
-  }
-  if (auto *call = dynamic_cast<const CallExpr *>(&expr)) {
-    auto *path = dynamic_cast<const PathExpr *>(call->callee.get());
-    if (path == nullptr) {
-      return false;
-    }
-    int target = analyzer.bindingOf(*path);
-    if (target == InvalidSymbol) {
-      return false;
-    }
-    const Symbol *sym = analyzer.symbol(target);
+    return valueResult(builder.load(storage, temp));
+  } else if (kind == TypeKind::Struct) {
+    const Symbol *sym = analyzer.symbol(info.structId);
     if (sym == nullptr) {
-      return false;
+      return failResult();
     }
-    if (sym->kind != SymbolKind::Fn && sym->kind != SymbolKind::BuiltinFn &&
-        sym->kind != SymbolKind::AssocFn) {
-      return false;
-    }
-    const std::vector<TypeId> *params = analyzer.paramTypes(target);
-    if (params == nullptr || params->size() != call->args.size() ||
-        analyzer.returnType(target) == InvalidType) {
-      return false;
-    }
-    for (const auto &arg : call->args) {
-      if (!supportsExpr(*arg, analyzer)) {
-        return false;
-      }
-    }
-    return true;
+    std::string storage = types.storageType(type);
+    std::string temp = builder.ensureTemp(storage);
+    builder.store(storage, value, temp);
+    std::string fnName = "_rx_clone_" + sym->name;
+    std::string result =
+        builder.call(types.valueType(type), fnName, {"ptr " + temp});
+    return valueResult(result);
   }
+  return failResult();
+}
+ir::LowerResult lowerCloneStructFields(TypeId structType,
+                                       const std::string &selfPtr,
+                                       LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  const TypeInfo &info = analyzer.typeArena().get(structType);
+  if (info.kind != TypeKind::Struct) {
+    return failResult();
+  }
+  auto *fields = analyzer.structFields(info.structId);
+  if (fields == nullptr) {
+    return failResult();
+  }
+  std::string structIr = types.valueType(structType);
+  std::string storage = types.storageType(structType);
+  std::string temp = builder.ensureTemp(storage);
+  for (std::size_t i = 0; i < fields->size(); ++i) {
+    TypeId fieldType = (*fields)[i];
+    std::string srcPtr =
+        builder.gep(structIr, selfPtr, {"i32 0", "i32 " + std::to_string(i)});
+    std::string raw = builder.load(types.storageType(fieldType), srcPtr);
+    std::string fieldValue = fromStorageValue(ctx, fieldType, raw);
+    auto cloned = lowerCloneValue(fieldType, fieldValue, ctx);
+    if (!cloned.ok) {
+      return failResult();
+    } else if (cloned.terminated) {
+      return cloned;
+    } else if (!cloned.hasValue) {
+      return failResult();
+    }
+    std::string dstPtr =
+        builder.gep(structIr, temp, {"i32 0", "i32 " + std::to_string(i)});
+    builder.store(types.storageType(fieldType),
+                  toStorageValue(ctx, fieldType, cloned.value), dstPtr);
+  }
+  return valueResult(builder.load(storage, temp));
+}
+ir::LowerResult lowerEqualityStructFields(TypeId structType,
+                                          const std::string &lhsPtr,
+                                          const std::string &rhsPtr,
+                                          LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  const TypeInfo &info = analyzer.typeArena().get(structType);
+  if (info.kind != TypeKind::Struct) {
+    return failResult();
+  }
+  const std::vector<TypeId> *fields = analyzer.structFields(info.structId);
+  if (fields == nullptr) {
+    return failResult();
+  }
+  std::string structIr = types.valueType(structType);
+  std::string result = "true";
+  for (std::size_t i = 0; i < fields->size(); ++i) {
+    TypeId fieldType = (*fields)[i];
+    std::string index = std::to_string(i);
+    std::string lhsFieldPtr =
+        builder.gep(structIr, lhsPtr, {"i32 0", "i32 " + index});
+    std::string rhsFieldPtr =
+        builder.gep(structIr, rhsPtr, {"i32 0", "i32 " + index});
+    std::string lhsRaw =
+        builder.load(types.storageType(fieldType), lhsFieldPtr);
+    std::string rhsRaw =
+        builder.load(types.storageType(fieldType), rhsFieldPtr);
+    std::string lhsValue = fromStorageValue(ctx, fieldType, lhsRaw);
+    std::string rhsValue = fromStorageValue(ctx, fieldType, rhsRaw);
+    auto eq = lowerEquality(fieldType, lhsValue, rhsValue, ctx);
+    if (!eq.ok || eq.terminated || !eq.hasValue) {
+      return failResult();
+    }
+    result = builder.binary("and", "i1", result, eq.value);
+  }
+  return valueResult(result);
+}
+
+ir::LowerResult lowerEquality(TypeId type, const std::string &lhs,
+                              const std::string &rhs, LowerContext &ctx) {
+  ir::IrBuilder &builder = ctx.builder;
+  const ir::TypeMapper &types = ctx.types;
+  const SemanticAnalyzer &analyzer = ctx.analyzer;
+
+  if (type == InvalidType) {
+    return failResult();
+  }
+  const TypeInfo &info = analyzer.typeArena().get(type);
+  auto kind = info.kind;
+  if (isScalarInt(type, analyzer) || isScalarBool(type, analyzer)) {
+    std::string irType = types.valueType(type);
+    return valueResult(builder.icmp("eq", irType, lhs, rhs));
+  }
+  if (kind == TypeKind::Ref || kind == TypeKind::Box) {
+    TypeId inner = info.inner;
+    if (inner == InvalidType) {
+      return failResult();
+    }
+    std::string innerStorage = types.storageType(inner);
+    std::string lhsRaw = builder.load(innerStorage, lhs);
+    std::string rhsRaw = builder.load(innerStorage, rhs);
+    std::string lhsVal = fromStorageValue(ctx, inner, lhsRaw);
+    std::string rhsVal = fromStorageValue(ctx, inner, rhsRaw);
+    return lowerEquality(inner, lhsVal, rhsVal, ctx);
+  } else if (kind == TypeKind::Struct) {
+    const Symbol *sym = analyzer.symbol(info.structId);
+    if (sym == nullptr) {
+      return failResult();
+    }
+    std::string storage = types.storageType(type);
+    std::string tempLhs = builder.ensureTemp(storage);
+    std::string tempRhs = builder.ensureTemp(storage);
+    builder.store(storage, lhs, tempLhs);
+    builder.store(storage, rhs, tempRhs);
+    std::string result = builder.call("i1", "_rx_eq_" + sym->name,
+                                      {"ptr " + tempLhs, "ptr " + tempRhs});
+    return valueResult(result);
+  } else if (kind == TypeKind::Array) {
+    TypeId inner = info.inner;
+    if (inner == InvalidType) {
+      return failResult();
+    }
+    std::string arrayIr = types.valueType(type);
+    std::string storage = types.storageType(type);
+    std::string tempLhs = builder.ensureTemp(storage);
+    std::string tempRhs = builder.ensureTemp(storage);
+    builder.store(storage, lhs, tempLhs);
+    builder.store(storage, rhs, tempRhs);
+    std::string result = "true";
+    for (int i = 0; i < info.len; ++i) {
+      std::string idxStr = std::to_string(i);
+      std::string lhsPtr =
+          builder.gep(arrayIr, tempLhs, {"i32 0", "i32 " + idxStr});
+      std::string rhsPtr =
+          builder.gep(arrayIr, tempRhs, {"i32 0", "i32 " + idxStr});
+      std::string lhsRaw = builder.load(types.storageType(inner), lhsPtr);
+      std::string rhsRaw = builder.load(types.storageType(inner), rhsPtr);
+      std::string lhsVal = fromStorageValue(ctx, inner, lhsRaw);
+      std::string rhsVal = fromStorageValue(ctx, inner, rhsRaw);
+      auto eq = lowerEquality(inner, lhsVal, rhsVal, ctx);
+      if (!eq.ok || eq.terminated || !eq.hasValue) {
+        return failResult();
+      }
+      result = builder.binary("and", "i1", result, eq.value);
+    }
+    return valueResult(result);
+  } else if (kind == TypeKind::Vec) {
+    TypeId elemType = info.inner;
+    if (elemType == InvalidType) {
+      return failResult();
+    }
+    std::string storage = types.storageType(type);
+    std::string tempLhs = builder.ensureTemp(storage);
+    std::string tempRhs = builder.ensureTemp(storage);
+    builder.store(storage, lhs, tempLhs);
+    builder.store(storage, rhs, tempRhs);
+    std::string lhsLen = builder.load("i32", vecLenPtr(tempLhs, ctx));
+    std::string rhsLen = builder.load("i32", vecLenPtr(tempRhs, ctx));
+    std::string lenEq = builder.icmp("eq", "i32", lhsLen, rhsLen);
+    std::string resultSlot = builder.ensureTemp("i1");
+    builder.store("i1", "false", resultSlot);
+    std::string lensEqualLabel = builder.newLabel("vec.eq.lens");
+    std::string loopLabel = builder.newLabel("vec.eq.loop");
+    std::string bodyLabel = builder.newLabel("vec.eq.body");
+    std::string nextLabel = builder.newLabel("vec.eq.next");
+    std::string diffLabel = builder.newLabel("vec.eq.diff");
+    std::string doneLabel = builder.newLabel("vec.eq.done");
+    builder.condBranch(lenEq, lensEqualLabel, doneLabel);
+    builder.startBlock(lensEqualLabel);
+    builder.store("i1", "true", resultSlot);
+    std::string idxSlot = builder.ensureTemp("i32");
+    builder.store("i32", "0", idxSlot);
+    builder.branch(loopLabel);
+    builder.startBlock(loopLabel);
+    std::string idx = builder.load("i32", idxSlot);
+    std::string more = builder.icmp("ult", "i32", idx, lhsLen);
+    builder.condBranch(more, bodyLabel, doneLabel);
+    builder.startBlock(bodyLabel);
+    std::string lhsData = builder.load("ptr", vecDataPtr(tempLhs, ctx));
+    std::string rhsData = builder.load("ptr", vecDataPtr(tempRhs, ctx));
+    std::string lhsPtr =
+        builder.gep(types.storageType(elemType), lhsData, {"i32 " + idx});
+    std::string rhsPtr =
+        builder.gep(types.storageType(elemType), rhsData, {"i32 " + idx});
+    std::string lhsRaw = builder.load(types.storageType(elemType), lhsPtr);
+    std::string rhsRaw = builder.load(types.storageType(elemType), rhsPtr);
+    std::string lhsVal = fromStorageValue(ctx, elemType, lhsRaw);
+    std::string rhsVal = fromStorageValue(ctx, elemType, rhsRaw);
+    auto eq = lowerEquality(elemType, lhsVal, rhsVal, ctx);
+    if (!eq.ok || eq.terminated || !eq.hasValue) {
+      return failResult();
+    }
+    builder.condBranch(eq.value, nextLabel, diffLabel);
+    builder.startBlock(diffLabel);
+    builder.store("i1", "false", resultSlot);
+    builder.branch(doneLabel);
+    builder.startBlock(nextLabel);
+    std::string nextIdx = builder.binary("add", "i32", idx, "1");
+    builder.store("i32", nextIdx, idxSlot);
+    builder.branch(loopLabel);
+    builder.startBlock(doneLabel);
+    return valueResult(builder.load("i1", resultSlot));
+  }
+  return failResult();
+}
+ir::LowerResult lowerExprToType(const Expr &expr, TypeId expectedType,
+                                LowerContext &ctx) {
   if (auto *block = dynamic_cast<const BlockExpr *>(&expr)) {
-    return supportsBlock(*block, analyzer);
+    return lowerBlock(*block, ctx, expectedType);
   }
-  if (auto *binary = dynamic_cast<const BinaryExpr *>(&expr)) {
-    TypeId lhsType = analyzer.exprType(*binary->lhs);
-    TypeId rhsType = analyzer.exprType(*binary->rhs);
-    bool lhsRef = isRefType(lhsType, analyzer);
-    bool rhsRef = isRefType(rhsType, analyzer);
-
-    if (lhsRef || rhsRef) {
-      if (binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne) {
-        return lhsRef && rhsRef && supportsExpr(*binary->lhs, analyzer) &&
-               supportsExpr(*binary->rhs, analyzer);
-      }
-
-      TypeId lhsTarget = stripRefs(lhsType, analyzer);
-      TypeId rhsTarget = stripRefs(rhsType, analyzer);
-      if (!isScalarValue(lhsTarget, analyzer) ||
-          !isScalarValue(rhsTarget, analyzer)) {
-        return false;
-      }
-    } else if ((binary->op == BinaryOp::Eq || binary->op == BinaryOp::Ne) &&
-               (!isScalarValue(lhsType, analyzer) ||
-                !isScalarValue(rhsType, analyzer))) {
-      // 聚合相等需要 derive/PartialEq lowering，I6 暂不支持
-      return false;
-    }
-
-    return supportsBinaryOp(binary->op) &&
-           supportsExpr(*binary->lhs, analyzer) &&
-           supportsExpr(*binary->rhs, analyzer);
-  }
-  if (auto *ifex = dynamic_cast<const IfExpr *>(&expr)) {
-    if (!supportsExpr(*ifex->cond, analyzer)) {
-      return false;
-    }
-    if (!supportsBlock(*ifex->then, analyzer)) {
-      return false;
-    }
-    if (ifex->elseBranch != nullptr) {
-      if (auto *block =
-              dynamic_cast<const BlockExpr *>(ifex->elseBranch.get())) {
-        return supportsBlock(*block, analyzer);
-      }
-      if (auto *nested = dynamic_cast<const IfExpr *>(ifex->elseBranch.get())) {
-        return supportsExpr(*nested, analyzer);
-      }
-      return false;
-    }
-    return true;
-  }
-  if (auto *whileex = dynamic_cast<const WhileExpr *>(&expr)) {
-    return supportsExpr(*whileex->cond, analyzer) &&
-           supportsBlock(*whileex->body, analyzer);
-  }
-  if (auto *loop = dynamic_cast<const LoopExpr *>(&expr)) {
-    return supportsBlock(*loop->body, analyzer);
-  }
-  if (auto *brk = dynamic_cast<const BreakExpr *>(&expr)) {
-    return brk->value == nullptr || supportsExpr(*brk->value, analyzer);
-  }
-  if (dynamic_cast<const ContinueExpr *>(&expr) != nullptr) {
-    return true;
-  }
-  if (auto *ret = dynamic_cast<const ReturnExpr *>(&expr)) {
-    return ret->value == nullptr || supportsExpr(*ret->value, analyzer);
-  }
-  return false;
+  auto value = lowerExpr(expr, ctx);
+  return coerceValueToType(value, ctx.exprType(expr), expectedType, ctx);
 }
-bool supportsStmt(const Stmt &stmt, const SemanticAnalyzer &analyzer) {
-  if (auto *let = dynamic_cast<const LetStmt *>(&stmt)) {
-    if (let->init == nullptr) {
-      return false;
-    }
-    if (!supportsExpr(*let->init, analyzer)) {
-      return false;
-    }
-
-    int id = analyzer.symbolIdOfDecl(*let);
-    const Symbol *sym = analyzer.symbol(id);
-    if (sym == nullptr || !isLowerableValueOrNever(sym->type, analyzer)) {
-      return false;
-    }
-
-    TypeId initType = analyzer.exprType(*let->init);
-    return isLowerableValueOrNever(initType, analyzer);
+ir::LowerResult lowerReceiverValueToType(const Expr &expr, TypeId selfType,
+                                         LowerContext &ctx) {
+  auto value = lowerExpr(expr, ctx);
+  if (!value.ok || value.terminated) {
+    return value;
   }
-
-  if (auto *expr = dynamic_cast<const ExprStmt *>(&stmt)) {
-    if (dynamic_cast<const BlockExpr *>(expr->expr.get()) != nullptr ||
-        dynamic_cast<const IfExpr *>(expr->expr.get()) != nullptr ||
-        dynamic_cast<const WhileExpr *>(expr->expr.get()) != nullptr ||
-        dynamic_cast<const LoopExpr *>(expr->expr.get()) != nullptr ||
-        dynamic_cast<const BreakExpr *>(expr->expr.get()) != nullptr ||
-        dynamic_cast<const ContinueExpr *>(expr->expr.get()) != nullptr) {
-      return supportsExpr(*expr->expr, analyzer);
-    }
-    if (auto *ret = dynamic_cast<const ReturnExpr *>(expr->expr.get())) {
-      return ret->value == nullptr || supportsExpr(*ret->value, analyzer);
-    }
-    if (auto *call = dynamic_cast<const CallExpr *>(expr->expr.get())) {
-      return supportsExpr(*call, analyzer);
-    }
-
-    auto *assign = dynamic_cast<const AssignExpr *>(expr->expr.get());
-    if (assign == nullptr) {
-      return supportsExpr(*expr->expr, analyzer);
-    }
-
-    if (!supportsPlace(*assign->lhs, analyzer)) {
-      return false;
-    }
-
-    TypeId lhsType = analyzer.exprType(*assign->lhs);
-    if (lhsType == InvalidType) {
-      return false;
-    }
-    if (assign->op == AssignOp::Assign) {
-      if (!isLowerableValueOrNever(lhsType, analyzer)) {
-        return false;
-      }
-    } else {
-      if (!isScalarValue(lhsType, analyzer)) {
-        return false;
-      }
-
-      if (isScalarBool(lhsType, analyzer) &&
-          assign->op != AssignOp::BitAndAssign &&
-          assign->op != AssignOp::BitOrAssign &&
-          assign->op != AssignOp::BitXorAssign) {
-        return false;
-      }
-    }
-
-    return supportsExpr(*assign->rhs, analyzer);
+  if (!value.hasValue) {
+    return failResult();
   }
-
-  return false;
+  TypeId current = ctx.exprType(expr);
+  while (current != selfType) {
+    if (!isRefOrBoxType(current, ctx.analyzer)) {
+      return failResult();
+    }
+    TypeId inner = ctx.analyzer.typeArena().get(current).inner;
+    if (inner == InvalidType) {
+      return failResult();
+    }
+    std::string raw = ctx.builder.load(ctx.storageType(inner), value.value);
+    value.value = fromStorageValue(ctx, inner, raw);
+    current = inner;
+  }
+  return value;
 }
-bool supportsBlock(const BlockExpr &block, const SemanticAnalyzer &analyzer) {
-  for (const auto &stmt : block.stmts) {
-    if (!supportsStmt(*stmt, analyzer)) {
-      return false;
+ir::LowerResult coerceValueToType(ir::LowerResult value, TypeId actualType,
+                                  TypeId expectedType, LowerContext &ctx) {
+  if (!value.ok || value.terminated || expectedType == InvalidType) {
+    return value;
+  } else if (actualType == InvalidType) {
+    return failResult();
+  } else if (actualType == expectedType) {
+    return value;
+  } else if (!value.hasValue || !isRefType(actualType, ctx.analyzer) ||
+             !isRefType(expectedType, ctx.analyzer)) {
+    return failResult();
+  }
+  TypeId current = ctx.analyzer.typeArena().get(actualType).inner;
+  TypeId target = ctx.analyzer.typeArena().get(expectedType).inner;
+  if (target == InvalidType) {
+    return failResult();
+  }
+  while (current != target) {
+    if (current == InvalidType) {
+      return failResult();
     }
+    const TypeInfo &info = ctx.analyzer.typeArena().get(current);
+    if (info.kind != TypeKind::Ref && info.kind != TypeKind::Box) {
+      return failResult();
+    }
+    value.value = ctx.builder.load("ptr", value.value);
+    current = info.inner;
   }
-  if (block.tail != nullptr) {
-    return supportsExpr(*block.tail, analyzer);
-  }
-  return true;
+  return value;
 }
 } // namespace
 bool IrGenerator::generate(std::ostream &out) {
   ir::Module module;
   ir::TypeMapper types(analyzer);
+  module.addVecType();
   module.addDeclaration("get_i32", "i32", {});
   module.addDeclaration("print_i32", "void", {{"i32", "arg0"}});
   module.addDeclaration("println_i32", "void", {{"i32", "arg0"}});
+  module.addDeclaration("__rx_alloc", "ptr",
+                        {{"i32", "size"}, {"i32", "align"}});
+
+  module.addDeclaration("memmove", "ptr",
+                        {{"ptr", "dst"}, {"ptr", "src"}, {"i32", "n"}});
+  std::vector<CloneFnInfo> cloneFns;
+  std::vector<EqFnInfo> eqFns;
   std::vector<const FnDecl *> functions;
   for (const auto &item : crate.items) {
     if (auto *fn = dynamic_cast<const FnDecl *>(item.get())) {
@@ -1747,8 +2154,53 @@ bool IrGenerator::generate(std::ostream &out) {
           functions.push_back(fn);
         }
       }
+    } else if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
+      const Symbol *sym = analyzer.symbolOfDecl(*sd);
+      if (sym == nullptr) {
+        return false;
+      }
+      if (sd->derives.clone) {
+        std::string name = "_rx_clone_" + sd->name;
+        cloneFns.push_back({sd, sym->type, name, nullptr});
+      }
+      if (sd->derives.partialEq) {
+        std::string name = "_rx_eq_" + sd->name;
+        eqFns.push_back({sd, sym->type, name, nullptr});
+      }
     }
   }
+  module.reserveFunctions(module.functionCount() + cloneFns.size() +
+                          eqFns.size());
+  for (auto &info : cloneFns) {
+    info.fn = &module.addFunction(info.name, types.valueType(info.type),
+                                  {{"ptr", "self"}});
+  }
+  for (auto &info : cloneFns) {
+    ir::IrBuilder builder(*info.fn);
+    std::unordered_map<int, std::string> paramValues;
+    std::string retType = types.valueType(info.type);
+    LowerContext ctx{builder, types, analyzer, retType, paramValues};
+    auto result = lowerCloneStructFields(info.type, "%self", ctx);
+    if (!result.ok || result.terminated || !result.hasValue) {
+      return false;
+    }
+    builder.ret(retType, result.value);
+  }
+  for (auto &info : eqFns) {
+    info.fn =
+        &module.addFunction(info.name, "i1", {{"ptr", "lhs"}, {"ptr", "rhs"}});
+  }
+  for (auto &info : eqFns) {
+    ir::IrBuilder builder(*info.fn);
+    std::unordered_map<int, std::string> paramValues;
+    LowerContext ctx{builder, types, analyzer, "i1", paramValues};
+    auto result = lowerEqualityStructFields(info.type, "%lhs", "%rhs", ctx);
+    if (!result.ok || result.terminated || !result.hasValue) {
+      return false;
+    }
+    builder.ret("i1", result.value);
+  }
+
   const FnDecl *mainFn = nullptr;
   for (const auto &item : crate.items) {
     if (auto *sd = dynamic_cast<const StructDecl *>(item.get())) {
@@ -1768,7 +2220,6 @@ bool IrGenerator::generate(std::ostream &out) {
     if (sym == nullptr) {
       return false;
     }
-
     std::string irName;
     if (sym->owner == InvalidSymbol) {
       irName = "_rx_fn_" + fn->name;
@@ -1800,65 +2251,66 @@ bool IrGenerator::generate(std::ostream &out) {
       paramValues[id] = "%" + functionParams[i].name;
     }
     std::string retType = types.valueType(res);
-    if (fn->body != nullptr && supportsBlock(*fn->body, analyzer)) {
-      ir::Function &outFn = module.addFunction(irName, retType, functionParams);
-      ir::IrBuilder builder(outFn);
-      std::unordered_map<int, std::string> paramSlots;
-      LowerContext ctx{builder, types,       analyzer,
-                       retType, paramValues, paramSlots};
-      for (std::size_t i = 0; i < fn->params.size(); ++i) {
-        TypeId paramType = (*params)[i];
-        if (!isStructType(paramType, analyzer) &&
-            !isArrayType(paramType, analyzer)) {
-          continue;
-        }
-        int id = analyzer.paramSymbol(fn->params[i]);
-        if (id == InvalidSymbol) {
-          return false;
-        }
-        const std::string &name = functionParams[i].name;
-        std::string storage = types.storageType(paramType);
-        std::string slot = builder.ensureSlot(id, "param." + name, storage);
-        builder.store(storage, "%" + name, slot);
-        paramSlots[id] = slot;
+    if (fn->body == nullptr) {
+      std::cerr << "missing function body: " << irName << "\n";
+      return false;
+    }
+    ir::Function &outFn = module.addFunction(irName, retType, functionParams);
+    ir::IrBuilder builder(outFn);
+    LowerContext ctx{builder, types, analyzer, retType, paramValues};
+    ctx.returnTypeId = res;
+    for (std::size_t i = 0; i < fn->params.size(); ++i) {
+      TypeId paramType = (*params)[i];
+      const Param &param = fn->params[i];
+      if (!param.mutBinding && !isStructType(paramType, analyzer) &&
+          !isArrayType(paramType, analyzer) &&
+          !isVecType(paramType, analyzer)) {
+        continue;
       }
-      auto body = lowerBlock(*fn->body, ctx);
-      if (!body.ok) {
+      int id = analyzer.paramSymbol(fn->params[i]);
+      if (id == InvalidSymbol) {
         return false;
       }
-      if (!body.terminated) {
-        if (retType == "void") {
-          builder.retVoid();
-        } else {
-          if (!body.hasValue) {
-            return false;
-          }
-          builder.ret(retType, body.value);
-        }
-      }
-    } else {
-      module.addDeclaration(irName, retType, functionParams);
+      const std::string &name = functionParams[i].name;
+      std::string storage = types.storageType(paramType);
+      std::string slot = builder.ensureSlot(id, "param." + name, storage);
+      builder.store(storage, toStorageValue(ctx, paramType, "%" + name), slot);
     }
-  }
-  if (mainFn != nullptr && mainFn->body != nullptr &&
-      supportsBlock(*mainFn->body, analyzer)) {
-    ir::Function &outFn = module.addFunction(ir::SourceMain, "void", {});
-    ir::IrBuilder builder(outFn);
-    std::unordered_map<int, std::string> paramValues;
-    std::unordered_map<int, std::string> paramSlots;
-    LowerContext ctx{builder, types, analyzer, "void", paramValues, paramSlots};
-    auto body = lowerBlock(*mainFn->body, ctx);
+    auto body = lowerBlock(*fn->body, ctx, res);
     if (!body.ok) {
+      std::cerr << "failed to lower function: " << irName << "\n";
       return false;
     }
     if (!body.terminated) {
-      if (body.hasValue) {
-        return false;
+      if (retType == "void") {
+        builder.retVoid();
+      } else {
+        if (!body.hasValue) {
+          return false;
+        }
+        builder.ret(retType, body.value);
       }
-      builder.retVoid();
     }
-  } else {
-    module.addSourceMain();
+  }
+  if (mainFn == nullptr || mainFn->body == nullptr) {
+    std::cerr << "missing source main body\n";
+    return false;
+  }
+  ir::Function &outFn = module.addFunction(ir::SourceMain, "void", {});
+  ir::IrBuilder builder(outFn);
+  std::unordered_map<int, std::string> paramValues;
+  LowerContext ctx{builder, types, analyzer, "void", paramValues};
+  ctx.returnTypeId = analyzer.returnType(analyzer.fnSymbol(*mainFn));
+  auto body = lowerBlock(*mainFn->body, ctx, ctx.returnTypeId);
+  if (!body.ok) {
+    std::cerr << "failed to lower function: " << ir::SourceMain << "\n";
+    return false;
+  }
+  if (!body.terminated) {
+    if (body.hasValue) {
+      return false;
+    }
+    builder.retVoid();
   }
   module.addEntryWrapper();
   if (!module.print(out)) {
