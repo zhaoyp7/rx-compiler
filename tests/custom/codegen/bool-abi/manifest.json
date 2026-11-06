@@ -1,0 +1,154 @@
+[
+  {
+    "source": "acc-array-box-vec-storage-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array box vec storage control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-box-vec-storage-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-immutable-parameter-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Immutable parameter control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-immutable-parameter-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-associated-parameter.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable associated parameter.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-associated-parameter.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-method-parameter.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable method parameter.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-method-parameter.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-parameter-and.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable parameter and.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-parameter-and.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-parameter-assign.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable parameter assign.",
+    "io": [
+      {
+        "input": "acc-mutable-parameter-assign.1.in",
+        "output": "acc-mutable-parameter-assign.1.out"
+      },
+      {
+        "input": "acc-mutable-parameter-assign.2.in",
+        "output": "acc-mutable-parameter-assign.2.out"
+      },
+      {
+        "input": "acc-mutable-parameter-assign.3.in",
+        "output": "acc-mutable-parameter-assign.3.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-parameter-or.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable parameter or.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-parameter-or.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-parameter-reborrow.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable parameter reborrow.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-parameter-reborrow.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-parameter-xor.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable parameter xor.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-parameter-xor.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-recursive-parameter.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable recursive parameter.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-recursive-parameter.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-padded-aggregate-parameter-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Padded aggregate parameter control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-padded-aggregate-parameter-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-stack-passed-parameters.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Stack passed parameters.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-stack-passed-parameters.default.out"
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+use rx::core::*;
+
+fn main() {
+    let b = Box::<i32>::new(17);
+    let v = Box::<&i32>::new(&b);
+    println_i32(**v);
+}

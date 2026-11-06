@@ -1,0 +1,15 @@
+use rx::core::*;
+
+fn work() {
+    let x = 17;
+    let mut r = &x;
+    r = {
+        println_i32(1);
+        return;
+    };
+    println_i32(99);
+}
+fn main() {
+    work();
+    println_i32(2);
+}

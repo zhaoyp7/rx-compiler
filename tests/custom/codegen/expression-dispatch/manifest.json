@@ -1,0 +1,98 @@
+[
+  {
+    "source": "acc-tail-assignment-function.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Tail assignment in a unit-returning function.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-assignment-function.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-assignment-nested-block.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested block tails preserve assignment side effects and unit results.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-assignment-nested-block.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-assignment-if.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Both if branches can end in assignments.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-assignment-if.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-compound-loop-bodies.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "While and loop bodies accept compound assignment tails.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-compound-loop-bodies.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-assignment-bool.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Boolean assignment and compound assignment tails preserve storage conversions.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-assignment-bool.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-assignment-evaluation-order.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Tail assignment evaluates the RHS before the target index, each exactly once.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-assignment-evaluation-order.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-tail-compound-old-value.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound assignment tails load the previous value after RHS side effects.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-tail-compound-old-value.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-unit-exits.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignments used as return and break operands yield unit and exit once.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-unit-exits.default.out"
+      }
+    ]
+  }
+]

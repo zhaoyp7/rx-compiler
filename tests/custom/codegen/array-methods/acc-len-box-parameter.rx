@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn length(a: Box<[i32; 2]>) -> usize {
+    a.len()
+}
+fn main() {
+    println_i32(length(Box::<[i32; 2]>::new([17, 19])) as i32);
+}

@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = Vec::<Vec<i32>>::new();
+    let mut b = Vec::<Vec<i32>>::new();
+    a.push(Vec::<i32>::new());
+    let mut child = Vec::<i32>::new();
+    child.push(17);
+    b.push(child);
+    println_i32((a == b) as i32);
+    println_i32((a != b) as i32);
+}

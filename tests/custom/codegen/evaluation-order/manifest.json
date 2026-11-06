@@ -1,0 +1,254 @@
+[
+  {
+    "source": "acc-assignment-rhs-first-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment rhs first control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-rhs-first-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-bool-and.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound bool and.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-bool-and.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-bool-or.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound bool or.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-bool-or.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-bool-xor.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound bool xor.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-bool-xor.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-index-after-rhs.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound index after rhs.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-index-after-rhs.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-old-value-after-rhs-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound old value after rhs control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-old-value-after-rhs-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-add.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar add.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-add.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-and.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar and.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-and.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-div.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar div.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-div.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-mul.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar mul.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-mul.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-or.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar or.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-or.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-rem.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar rem.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-rem.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-shl.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar shl.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-shl.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-shr.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar shr.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-shr.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-sub.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar sub.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-sub.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-scalar-xor.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Compound scalar xor.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-scalar-xor.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-shared-rhs-add.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Rx requires RHS-first evaluation for compound assignment with a shared-reference RHS, unlike Rust operator-overload evaluation order.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-shared-rhs-add.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-shared-rhs-shift.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Rx requires RHS-first evaluation for compound assignment with a shared-reference RHS, unlike Rust operator-overload evaluation order.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-shared-rhs-shift.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-compound-shared-rhs-xor.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Rx requires RHS-first evaluation for compound assignment with a shared-reference RHS, unlike Rust operator-overload evaluation order.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-compound-shared-rhs-xor.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-field-initializers-source-order-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Field initializers source order control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-field-initializers-source-order-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-repeat-element-once-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Repeat element once control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-repeat-element-once-control.default.out"
+      }
+    ]
+  }
+]

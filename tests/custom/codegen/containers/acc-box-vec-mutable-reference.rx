@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn main() {
+    let mut v = Vec::<i32>::new();
+    v.push(17);
+    let b = Box::<&mut Vec<i32>>::new(&mut v);
+    b.push(19);
+    b[0] = 23;
+    println_i32(b.len() as i32);
+    println_i32(b[0]);
+    println_i32(b[1]);
+}

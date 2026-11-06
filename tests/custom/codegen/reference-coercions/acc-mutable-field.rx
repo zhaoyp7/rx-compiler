@@ -1,0 +1,13 @@
+use rx::core::*;
+
+struct View<'a> {
+    value: &'a mut i32,
+}
+fn main() {
+    let mut b = Box::<i32>::new(17);
+    {
+        let v = View { value: &mut b };
+        *v.value = 23;
+    }
+    println_i32(*b);
+}

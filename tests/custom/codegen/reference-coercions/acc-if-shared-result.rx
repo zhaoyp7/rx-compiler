@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn main() {
+    let b = Box::<i32>::new(17);
+    let x = 9;
+    let r: &i32 = if get_i32() != 0 { &b } else { &x };
+    println_i32(*r);
+}

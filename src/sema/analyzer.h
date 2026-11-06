@@ -30,6 +30,25 @@ struct ConstVal {
 class SemanticAnalyzer {
 public:
   bool run(const Crate &crate);
+  int fnSymbol(const FnDecl &fn) const;
+  const std::vector<TypeId> *paramTypes(int symbol) const;
+  TypeId returnType(int symbol) const;
+  const TypeArena &typeArena() const;
+  const Symbol *symbol(int id) const;
+  const std::vector<TypeId> *structFields(int structId) const;
+  TypeId exprType(const Expr &expr) const;
+  int bindingOf(const PathExpr &path) const;
+  const Symbol *symbolOfDecl(const Node &decl) const;
+  int paramSymbol(const Param &param) const;
+  int symbolIdOfDecl(const Node &decl) const;
+  int methodSymbol(const MethodCallExpr &method) const;
+  TypeId methodReceiver(const MethodCallExpr &method) const;
+  int structFieldIndex(int structId, const std::string &name) const;
+  const StructLayout *structLayout(int structId) const;
+  const ConstVal *constValue(int symbol) const;
+  bool typeSizeAlignValue(TypeId id, uint32_t &size, uint32_t &align) const;
+  uint32_t typeSize(TypeId id) const;
+  uint32_t typeAlign(TypeId id) const;
 
 private:
   std::vector<Symbol> symbols;
@@ -41,6 +60,9 @@ private:
   std::unordered_map<int, TypeId> fnReturnTypes;
   std::unordered_map<int, TypeId> fnReceiverTypes;
   std::unordered_map<const FnDecl *, int> fnSymbols;
+  std::unordered_map<const Param *, int> paramSymbols;
+  std::unordered_map<const MethodCallExpr *, int> methodSymbols;
+  std::unordered_map<const MethodCallExpr *, TypeId> methodReceivers;
 
   std::map<int, int> derivedCloneSymbols;
 

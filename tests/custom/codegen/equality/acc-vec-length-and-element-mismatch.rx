@@ -1,0 +1,15 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = Vec::<i32>::new();
+    a.push(17);
+    a.push(19);
+    a.push(23);
+    let mut b = a.clone();
+    let index = get_i32() as usize;
+    b[index] = 29;
+    println_i32((a == b) as i32);
+    println_i32((a != b) as i32);
+    let c = Vec::<i32>::new();
+    println_i32((a == c) as i32);
+}

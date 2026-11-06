@@ -1,0 +1,11 @@
+use rx::core::*;
+
+fn mark() -> i32 {
+    println_i32(1);
+    17
+}
+fn main() {
+    let a = [mark(); 3];
+    println_i32(a[0]);
+    println_i32(a[2]);
+}

@@ -1,0 +1,14 @@
+use rx::core::*;
+
+fn work() {
+    let mut v = Vec::<i32>::new();
+    v.push({
+        println_i32(1);
+        return;
+    });
+    println_i32(99);
+}
+fn main() {
+    work();
+    println_i32(2);
+}

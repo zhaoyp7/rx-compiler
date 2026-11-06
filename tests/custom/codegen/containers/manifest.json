@@ -1,0 +1,142 @@
+[
+  {
+    "source": "acc-box-array-bool-stride.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box array bool stride.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-array-bool-stride.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-vec-mutable-reference.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box vec mutable reference.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-vec-mutable-reference.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-aggregate-abi.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested aggregate abi.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-aggregate-abi.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-push-loop-and-clone.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Push loop and clone.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-push-loop-and-clone.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-bool-stride.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove bool stride.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-remove-bool-stride.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-index-and-push.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove index and push.",
+    "io": [
+      {
+        "input": "acc-remove-index-and-push.1.in",
+        "output": "acc-remove-index-and-push.1.out"
+      },
+      {
+        "input": "acc-remove-index-and-push.2.in",
+        "output": "acc-remove-index-and-push.2.out"
+      },
+      {
+        "input": "acc-remove-index-and-push.3.in",
+        "output": "acc-remove-index-and-push.3.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-nested-vec.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove nested vec.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-remove-nested-vec.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-owned-box.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove owned box.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-remove-owned-box.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-padded-struct-stride.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove padded struct stride.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-remove-padded-struct-stride.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-remove-to-empty-reuse.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Remove to empty reuse.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-remove-to-empty-reuse.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-by-value-parameter-and-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec by value parameter and return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-by-value-parameter-and-return.default.out"
+      }
+    ]
+  }
+]

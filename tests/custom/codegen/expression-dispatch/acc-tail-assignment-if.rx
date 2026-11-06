@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn set(p: &mut i32, flag: bool) {
+    if flag { *p = 11 } else { *p = 22 }
+}
+fn main() {
+    let mut x = 0;
+    set(&mut x, true);
+    println_i32(x);
+    set(&mut x, false);
+    println_i32(x);
+}

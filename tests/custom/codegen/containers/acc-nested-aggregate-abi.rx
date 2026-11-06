@@ -1,0 +1,29 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct Item {
+    flag: bool,
+    values: [i32; 2],
+}
+fn update(mut a: [Item; 2]) -> [Item; 2] {
+    a[1].values[0] = 23;
+    a[0].flag = true;
+    a
+}
+fn main() {
+    let original = [
+        Item {
+            flag: false,
+            values: [11, 12],
+        },
+        Item {
+            flag: true,
+            values: [17, 19],
+        },
+    ];
+    let copy = update(original);
+    println_i32(original[1].values[0]);
+    println_i32(copy[1].values[0]);
+    println_i32(original[0].flag as i32);
+    println_i32(copy[0].flag as i32);
+}

@@ -1,0 +1,19 @@
+use rx::core::*;
+
+fn pick(
+    a: bool,
+    b: bool,
+    c: bool,
+    d: bool,
+    e: bool,
+    f: bool,
+    g: bool,
+    h: bool,
+    mut i: bool,
+) -> bool {
+    i = !i;
+    a & b & c & d & e & f & g & h & i
+}
+fn main() {
+    println_i32(pick(true, true, true, true, true, true, true, true, false) as i32);
+}

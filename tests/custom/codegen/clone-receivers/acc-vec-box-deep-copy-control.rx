@@ -1,0 +1,10 @@
+use rx::core::*;
+
+fn main() {
+    let mut v = Vec::<Box<i32>>::new();
+    v.push(Box::<i32>::new(17));
+    let mut c = v.clone();
+    *c[0] = 23;
+    println_i32(*v[0]);
+    println_i32(*c[0]);
+}

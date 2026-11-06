@@ -1,0 +1,16 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = [10, 20];
+    let mut i = 0usize;
+    a[{
+        println_i32(2);
+        i
+    }] += {
+        println_i32(1);
+        i = 1usize;
+        3
+    };
+    println_i32(a[0]);
+    println_i32(a[1]);
+}

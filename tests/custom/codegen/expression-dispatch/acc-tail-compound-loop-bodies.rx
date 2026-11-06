@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn main() {
+    let mut x = 0;
+    while x < 3 { x += 1 }
+    println_i32(x);
+    loop {
+        if x >= 9 { break; }
+        x += 2
+    }
+    println_i32(x);
+}

@@ -1,0 +1,170 @@
+[
+  {
+    "source": "acc-box-constructor-return-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box constructor return control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-constructor-return-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-mutable-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call mutable return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-mutable-return.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-reference-argument-break.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call reference argument break.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-reference-argument-break.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-reference-argument-continue.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call reference argument continue.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-reference-argument-continue.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-shared-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call shared return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-shared-return.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-if-reference-diverging-branch.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "If reference diverging branch.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-if-reference-diverging-branch.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-mutable-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let mutable return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-mutable-return.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-reference-break.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let reference break.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-reference-break.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-reference-continue.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let reference continue.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-reference-continue.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-shared-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let shared return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-shared-return.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-method-reference-argument-return.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Method reference argument return.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-method-reference-argument-return.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-return-value.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested return value.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-return-value.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-reference-assignment-return-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Reference assignment return control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-reference-assignment-return-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-push-return-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "A Never argument to Vec push returns before inserting an element or executing later code.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-push-return-control.default.out"
+      }
+    ]
+  }
+]

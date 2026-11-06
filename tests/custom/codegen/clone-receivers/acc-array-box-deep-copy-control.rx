@@ -1,0 +1,10 @@
+use rx::core::*;
+
+fn main() {
+    let a = [Box::<i32>::new(17), Box::<i32>::new(19)];
+    let mut c = a.clone();
+    *c[0] = 23;
+    println_i32(*a[0]);
+    println_i32(*c[0]);
+    println_i32(*c[1]);
+}

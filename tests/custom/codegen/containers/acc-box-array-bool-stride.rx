@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn main() {
+    let mut b = Box::<[bool; 3]>::new([true, false, true]);
+    b[1] = true;
+    println_i32(b[0] as i32);
+    println_i32(b[1] as i32);
+    println_i32(b[2] as i32);
+}

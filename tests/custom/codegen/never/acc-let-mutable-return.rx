@@ -1,0 +1,14 @@
+use rx::core::*;
+
+fn work() {
+    println_i32(1);
+    let r: &mut i32 = {
+        println_i32(2);
+        return;
+    };
+    println_i32(99);
+}
+fn main() {
+    work();
+    println_i32(3);
+}

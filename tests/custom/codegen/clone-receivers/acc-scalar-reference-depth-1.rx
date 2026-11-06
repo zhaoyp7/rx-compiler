@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn main() {
+    let x = 17;
+    let r1 = &x;
+    let c: i32 = r1.clone();
+    println_i32(c);
+}

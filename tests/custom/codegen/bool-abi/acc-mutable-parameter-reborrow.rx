@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn write(p: &mut bool) {
+    *p = true;
+}
+fn change(mut b: bool) -> bool {
+    write(&mut b);
+    b
+}
+fn main() {
+    println_i32(change(false) as i32);
+}

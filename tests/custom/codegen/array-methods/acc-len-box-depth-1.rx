@@ -1,0 +1,6 @@
+use rx::core::*;
+
+fn main() {
+    let b = Box::<[i32; 2]>::new([17, 19]);
+    println_i32(b.len() as i32);
+}

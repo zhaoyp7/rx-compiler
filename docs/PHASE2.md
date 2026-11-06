@@ -1,7 +1,7 @@
 # 阶段二（IR）执行手册
 
 > 对应第 8 周 IR 验收；范围严格按 `docs/PLAN.md` §6 的 W5-W8：语义分析结果 → LLVM IR 文本 `.ll` → clang-22 → REIMU。
-> 前置：阶段一已完成，`official:semantic` 236/236、`tests/custom` 90/90，语义层冻结。
+> 前置：阶段一已完成，`official:semantic` 236/236、`tests/custom` 122/122，语义层冻结。
 > 编写约定：每个任务给出 **做法**（具体怎么下手）和 **作用**（为什么需要它、它影响后面什么）。
 > 编译器代码自己写；本手册只描述方法和原因，遇到设计取舍卡壳再来讨论。
 > 本阶段不包含自研后端与优化；CodeGen、Optimize 留到后续阶段。
@@ -54,7 +54,7 @@ clang-22 -S -x ir program.ll -o program.s \
 - `config.mk` 中 `IR =` 为空，`BUILD` 只会留下空 `{runtime}`。
 - `src/main.cpp` 只处理 `parse/ast/semantic`；`--stage ir` 和 `-o` 还没接。
 - `driver.h` 已有 `hasOutput/output`，但 main 尚未使用。
-- 语义层已冻结：任何 semantic 改动都要回归 236 + 90。
+- 语义层已冻结：任何 semantic 改动都要回归 236 + 122。
 - OJ 的 `BUILD` 用 `-j2`，不要改回 `-j32`；`src/generated/` 已提交，OJ 不需要 Java。
 - `vendor/REIMU` 里的未跟踪内容不要 `git add .` 带进来。
 
@@ -134,7 +134,7 @@ clang-22 -S -x ir program.ll -o program.s \
 6. **冻结语义接口**
    - 做法：在 `SemanticAnalyzer` 上增加只读访问器，暴露 IR 需要的旁表：`exprTypes`、`structLayouts`、`fnParamTypes`、`fnReturnTypes`、`fnReceiverTypes`、`fnSymbols`、`constValues`、`types`、`symbols`、impl/方法表、`isCopy`。
    - 作用：IR 直接读语义结果，不重复推导类型、布局和常量；避免把语义字段挂回 AST。
-   - 注意：只加访问器、不改语义行为；改完立刻回归 236 + 90。
+   - 注意：只加访问器、不改语义行为；改完立刻回归 236 + 122。
 
 7. **建目录与调试开关**
    - 做法：建 `src/ir/`；可选 `--dump-ir` 只在调试时打印，不影响正常输出。
@@ -144,7 +144,7 @@ clang-22 -S -x ir program.ll -o program.s \
 **验收**：
 - `command -v clang-22` 有输出；`xmake run -P vendor/REIMU reimu --help` 正常。
 - `./build/rxc --stage ir <file> -o /tmp/x.ll; echo $?` 能产出文件。
-- `make test FILTER=official:semantic STAGE=semantic` 仍 236/236；`make test FILTER=custom STAGE=semantic` 仍 90/90。
+- `make test FILTER=official:semantic STAGE=semantic` 仍 236/236；`make test FILTER=custom STAGE=semantic` 仍 122/122。
 - `BUILD` 跑完后 `{runtime}` 存在且不超过 8MiB（若采用方案 A）。
 
 **常见坑**：`BUILD` 里既构建编译器又构建 runtime，任一失败整轮测试失败；`clang-22` 的 target 写错会得到 unknown target；`-o` 目录不存在时要在编译器里创建或明确报错。
@@ -464,7 +464,7 @@ clang-22 -S -x ir program.ll -o program.s \
    - 做法：`git tag ir-ok`；只提交具体文件。
    - 作用：第 8 周验收基线。
 
-**验收**：`make test STAGE=ir` 输出 **60 passed / 115 runtime checks**；`official:semantic` 236 + `custom` 90 仍全绿。
+**验收**：`make test STAGE=ir` 输出 **60 passed / 115 runtime checks**；`official:semantic` 236 + `custom` 122 仍全绿。
 **常见坑**：只跑子集就宣布完成；把 clang 警告当通过；`.ll` 里残留调试输出。
 
 ---
@@ -475,7 +475,7 @@ clang-22 -S -x ir program.ll -o program.s \
 |---|---|---|---|
 | IR | `make test STAGE=ir` | 60 passed / 115 runtime checks | `ir-ok` |
 | 语义回归 | `make test FILTER=official:semantic STAGE=semantic` | 236/236 | — |
-| 自定义回归 | `make test FILTER=custom STAGE=semantic` | 90/90 | — |
+| 自定义回归 | `make test FILTER=custom STAGE=semantic` | 122/122 | — |
 
 ## 常见坑总表
 

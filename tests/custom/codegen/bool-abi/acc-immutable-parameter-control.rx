@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn invert(b: bool) -> bool {
+    !b
+}
+fn main() {
+    println_i32(invert(false) as i32);
+    println_i32(invert(true) as i32);
+}

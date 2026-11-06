@@ -1,0 +1,13 @@
+use rx::core::*;
+
+fn main() {
+    let mut i = 0;
+    while i < 2 {
+        i += 1;
+        let r: &i32 = {
+            println_i32(i);
+            continue;
+        };
+    }
+    println_i32(3);
+}

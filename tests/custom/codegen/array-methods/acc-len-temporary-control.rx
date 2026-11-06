@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn values() -> [i32; 2] {
+    println_i32(1);
+    [17, 19]
+}
+fn main() {
+    println_i32(values().len() as i32);
+}

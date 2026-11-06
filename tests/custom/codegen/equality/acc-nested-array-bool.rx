@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn main() {
+    let a = [[true, false], [false, true]];
+    let mut b = a;
+    println_i32((a == b) as i32);
+    b[1][0] = true;
+    println_i32((a != b) as i32);
+}
