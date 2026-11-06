@@ -50,17 +50,11 @@ std::string TypeMapper::storageType(TypeId id) const {
   if (id == InvalidType) {
     return "";
   }
-  const TypeInfo &info = analyzer.typeArena().get(id);
-  const auto &kind = info.kind;
-  if (kind == TypeKind::Bool) {
+  if (analyzer.typeArena().get(id).kind == TypeKind::Bool) {
     return "i8";
-  } else if (kind == TypeKind::Array) {
-    return "[" + std::to_string(info.len) + " x " + storageType(info.inner) +
-           "]";
   }
   return valueType(id);
 }
-
 bool TypeMapper::declare(TypeId id, Module &module) const {
   if (id == InvalidType) {
     return false;
