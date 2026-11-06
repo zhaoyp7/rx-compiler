@@ -1,0 +1,122 @@
+[
+  {
+    "source": "acc-array-recursive-elements-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array recursive elements control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-recursive-elements-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-dot-nonempty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box dot nonempty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-dot-nonempty.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-qualified-nonempty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box qualified nonempty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-qualified-nonempty.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-derived-root-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Derived root control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-derived-root-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutually-recursive-vectors.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutually recursive vectors.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutually-recursive-vectors.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-vec-recursive-elements.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested vec recursive elements.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-vec-recursive-elements.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-dot-empty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec dot empty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-dot-empty.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-dot-nonempty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec dot nonempty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-dot-nonempty.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-qualified-empty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec qualified empty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-qualified-empty.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-qualified-nonempty.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec qualified nonempty.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-qualified-nonempty.default.out"
+      }
+    ]
+  }
+]

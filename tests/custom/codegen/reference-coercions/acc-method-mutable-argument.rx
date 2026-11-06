@@ -1,0 +1,16 @@
+use rx::core::*;
+
+struct Writer {
+    value: i32,
+}
+impl Writer {
+    fn write(&self, target: &mut i32) {
+        *target = self.value;
+    }
+}
+fn main() {
+    let w = Writer { value: 23 };
+    let mut b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    w.write(&mut b);
+    println_i32(**b);
+}

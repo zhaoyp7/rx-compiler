@@ -1,0 +1,20 @@
+use rx::core::*;
+
+#[derive(Clone, PartialEq, Eq)]
+struct Node {
+    value: i32,
+    children: Vec<Self>,
+}
+fn leaf(value: i32) -> Node {
+    Node {
+        value: value,
+        children: Vec::<Node>::new(),
+    }
+}
+
+fn main() {
+    let mut original = Vec::<Node>::new();
+    let mut copy = Vec::<Node>::clone(&original);
+    println_i32(copy.len() as i32);
+    println_i32((original == copy) as i32);
+}

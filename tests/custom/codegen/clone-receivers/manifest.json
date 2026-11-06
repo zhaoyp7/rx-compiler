@@ -1,0 +1,254 @@
+[
+  {
+    "source": "acc-array-box-deep-copy-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array box deep copy control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-box-deep-copy-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-reference-clone-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array reference clone control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-reference-clone-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-reference-result-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box reference result depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-reference-result-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-reference-result-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box reference result depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-reference-result-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-derived-reference-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Derived reference depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-derived-reference-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-derived-reference-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Derived reference depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-derived-reference-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-derived-reference-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Derived reference depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-derived-reference-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-box-deep-copy-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested box deep copy control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-box-deep-copy-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-opaque-reference-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Opaque reference depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-opaque-reference-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-opaque-reference-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Opaque reference depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-opaque-reference-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-opaque-reference-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Opaque reference depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-opaque-reference-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-qualified-box-coerced-inner-box.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Qualified box coerced inner box.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-qualified-box-coerced-inner-box.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-qualified-box-reference-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Qualified box reference depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-qualified-box-reference-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-qualified-box-reference-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Qualified box reference depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-qualified-box-reference-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-qualified-box-reference-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Qualified box reference depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-qualified-box-reference-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-qualified-box-shared-pointee.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Qualified box shared pointee.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-qualified-box-shared-pointee.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-scalar-reference-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Scalar reference depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-scalar-reference-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-scalar-reference-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Scalar reference depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-scalar-reference-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-scalar-reference-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Scalar reference depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-scalar-reference-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-box-deep-copy-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec box deep copy control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-box-deep-copy-control.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-double-reference-result.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec double reference result.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-double-reference-result.default.out"
+      }
+    ]
+  }
+]

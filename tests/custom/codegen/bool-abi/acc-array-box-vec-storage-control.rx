@@ -1,0 +1,16 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = [true, false];
+    a[1] = true;
+    let mut b = Box::<bool>::new(false);
+    *b = a[1];
+    let mut v = Vec::<bool>::new();
+    v.push(a[0]);
+    v.push(*b);
+    v[0] = false;
+    println_i32(v[0] as i32);
+    println_i32(v[1] as i32);
+    println_i32(v.remove(0) as i32);
+    println_i32(v[0] as i32);
+}

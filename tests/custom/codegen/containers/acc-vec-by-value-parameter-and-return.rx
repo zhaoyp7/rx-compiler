@@ -1,0 +1,14 @@
+use rx::core::*;
+
+fn append(mut v: Vec<i32>) -> Vec<i32> {
+    v.push(23);
+    v
+}
+fn main() {
+    let mut v = Vec::<i32>::new();
+    v.push(17);
+    let v = append(v);
+    println_i32(v.len() as i32);
+    println_i32(v[0]);
+    println_i32(v[1]);
+}

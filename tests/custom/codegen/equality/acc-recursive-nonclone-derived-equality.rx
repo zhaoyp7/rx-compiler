@@ -1,0 +1,22 @@
+use rx::core::*;
+
+#[derive(PartialEq, Eq)]
+struct Node {
+    value: i32,
+    children: Vec<Self>,
+}
+fn leaf(n: i32) -> Node {
+    Node {
+        value: n,
+        children: Vec::<Node>::new(),
+    }
+}
+fn main() {
+    let mut a = leaf(17);
+    a.children.push(leaf(19));
+    let mut b = leaf(17);
+    b.children.push(leaf(19));
+    println_i32((a == b) as i32);
+    b.children[0].value = 23;
+    println_i32((a != b) as i32);
+}

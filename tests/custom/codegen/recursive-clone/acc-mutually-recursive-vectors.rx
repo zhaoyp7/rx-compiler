@@ -1,0 +1,28 @@
+use rx::core::*;
+
+#[derive(Clone, PartialEq, Eq)]
+struct Left {
+    value: i32,
+    children: Vec<Right>,
+}
+#[derive(Clone, PartialEq, Eq)]
+struct Right {
+    value: i32,
+    children: Vec<Left>,
+}
+fn main() {
+    let mut original = Vec::<Left>::new();
+    let mut left = Left {
+        value: 17,
+        children: Vec::<Right>::new(),
+    };
+    left.children.push(Right {
+        value: 19,
+        children: Vec::<Left>::new(),
+    });
+    original.push(left);
+    let mut copy = original.clone();
+    copy[0].children[0].value = 23;
+    println_i32(original[0].children[0].value);
+    println_i32(copy[0].children[0].value);
+}

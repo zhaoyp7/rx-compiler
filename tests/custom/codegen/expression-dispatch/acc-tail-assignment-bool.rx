@@ -1,0 +1,11 @@
+use rx::core::*;
+
+fn set(p: &mut bool) { *p = true }
+fn toggle(p: &mut bool) { *p ^= true }
+fn main() {
+    let mut flag = false;
+    set(&mut flag);
+    println_i32(if flag { 1 } else { 0 });
+    toggle(&mut flag);
+    println_i32(if flag { 1 } else { 0 });
+}

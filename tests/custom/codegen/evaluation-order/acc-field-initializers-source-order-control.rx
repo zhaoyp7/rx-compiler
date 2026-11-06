@@ -1,0 +1,18 @@
+use rx::core::*;
+
+struct Pair {
+    first: i32,
+    second: i32,
+}
+fn mark(n: i32) -> i32 {
+    println_i32(n);
+    n
+}
+fn main() {
+    let p = Pair {
+        second: mark(2),
+        first: mark(1),
+    };
+    println_i32(p.first);
+    println_i32(p.second);
+}

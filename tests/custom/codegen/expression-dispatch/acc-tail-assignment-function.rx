@@ -1,0 +1,8 @@
+use rx::core::*;
+
+fn set(p: &mut i32) { *p = 7 }
+fn main() {
+    let mut x = 1;
+    set(&mut x);
+    println_i32(x);
+}

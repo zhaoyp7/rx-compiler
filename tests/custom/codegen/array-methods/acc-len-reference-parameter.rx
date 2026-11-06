@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn length(a: &[i32; 2]) -> usize {
+    a.len()
+}
+fn main() {
+    let a = [17, 19];
+    println_i32(length(&a) as i32);
+}

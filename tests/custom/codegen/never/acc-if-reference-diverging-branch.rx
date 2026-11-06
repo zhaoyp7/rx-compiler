@@ -1,0 +1,15 @@
+use rx::core::*;
+
+fn value(flag: bool, r: &i32) -> i32 {
+    let p: &i32 = if flag {
+        return 7;
+    } else {
+        r
+    };
+    *p
+}
+fn main() {
+    let x = 17;
+    println_i32(value(true, &x));
+    println_i32(value(false, &x));
+}

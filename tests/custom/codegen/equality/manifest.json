@@ -1,0 +1,130 @@
+[
+  {
+    "source": "acc-nested-array-bool.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested array bool.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-array-bool.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-box-values.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested box values.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-box-values.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-nested-vec-length-mismatch.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Nested vec length mismatch.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-nested-vec-length-mismatch.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-padded-struct-fields.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Padded struct fields.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-padded-struct-fields.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-recursive-nonclone-derived-equality.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Recursive nonclone derived equality.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-recursive-nonclone-derived-equality.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-shared-references-compare-pointees.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Shared references compare pointees.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-shared-references-compare-pointees.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-bool-elements.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec bool elements.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-bool-elements.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-box-elements.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec box elements.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-box-elements.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-empty-and-singleton.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec empty and singleton.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-empty-and-singleton.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-length-and-element-mismatch.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec length and element mismatch.",
+    "io": [
+      {
+        "input": "acc-vec-length-and-element-mismatch.1.in",
+        "output": "acc-vec-length-and-element-mismatch.1.out"
+      },
+      {
+        "input": "acc-vec-length-and-element-mismatch.2.in",
+        "output": "acc-vec-length-and-element-mismatch.2.out"
+      },
+      {
+        "input": "acc-vec-length-and-element-mismatch.3.in",
+        "output": "acc-vec-length-and-element-mismatch.3.out"
+      }
+    ]
+  }
+]

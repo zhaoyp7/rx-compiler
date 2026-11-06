@@ -1,0 +1,16 @@
+use rx::core::*;
+
+struct Owner {
+    value: Box<i32>,
+}
+impl Owner {
+    fn view(&self) -> &i32 {
+        &self.value
+    }
+}
+fn main() {
+    let o = Owner {
+        value: Box::<i32>::new(17),
+    };
+    println_i32(*o.view());
+}

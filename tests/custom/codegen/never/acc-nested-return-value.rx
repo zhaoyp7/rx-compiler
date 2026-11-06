@@ -1,0 +1,10 @@
+use rx::core::*;
+
+fn value() -> i32 {
+    return {
+        return 7;
+    };
+}
+fn main() {
+    println_i32(value());
+}

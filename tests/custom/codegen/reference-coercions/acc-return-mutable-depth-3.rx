@@ -1,0 +1,10 @@
+use rx::core::*;
+
+fn view(b: &mut Box<Box<Box<i32>>>) -> &mut i32 {
+    b
+}
+fn main() {
+    let mut b = Box::<Box<Box<i32>>>::new(Box::<Box<i32>>::new(Box::<i32>::new(17)));
+    *view(&mut b) = 23;
+    println_i32(***b);
+}

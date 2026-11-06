@@ -1,0 +1,11 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = Vec::<bool>::new();
+    a.push(true);
+    a.push(false);
+    let mut b = a.clone();
+    println_i32((a == b) as i32);
+    b[1] = true;
+    println_i32((a != b) as i32);
+}

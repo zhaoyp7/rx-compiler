@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn read(r: &i32) -> i32 {
+    *r
+}
+fn main() {
+    let b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    println_i32(read(&b));
+}

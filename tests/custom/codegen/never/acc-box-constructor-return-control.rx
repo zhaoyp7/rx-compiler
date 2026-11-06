@@ -1,0 +1,13 @@
+use rx::core::*;
+
+fn work() {
+    let b = Box::<i32>::new({
+        println_i32(1);
+        return;
+    });
+    println_i32(99);
+}
+fn main() {
+    work();
+    println_i32(2);
+}

@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn main() {
+    let mut x = 1;
+    { { x = 3 } };
+    println_i32(x);
+    { { x += 4 } };
+    println_i32(x);
+}

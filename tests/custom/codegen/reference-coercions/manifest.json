@@ -1,0 +1,650 @@
+[
+  {
+    "source": "acc-array-literal-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array literal depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-literal-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-literal-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array literal depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-literal-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-literal-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array literal depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-literal-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-lub-box-first.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array lub box first.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-lub-box-first.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-lub-box-last.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array lub box last.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-lub-box-last.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-repeat-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array repeat depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-repeat-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-repeat-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array repeat depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-repeat-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-array-repeat-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Array repeat depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-array-repeat-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-mutable-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment mutable depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-mutable-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-mutable-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment mutable depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-mutable-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-mutable-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment mutable depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-mutable-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-shared-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment shared depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-shared-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-shared-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment shared depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-shared-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-assignment-shared-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Assignment shared depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-assignment-shared-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-block-shared-result.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Block shared result.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-block-shared-result.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-constructor-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box constructor depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-constructor-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-constructor-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box constructor depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-constructor-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-box-constructor-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Box constructor depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-box-constructor-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-mutable-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call mutable depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-mutable-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-mutable-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call mutable depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-mutable-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-mutable-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call mutable depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-mutable-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-shared-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call shared depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-shared-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-shared-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call shared depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-shared-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-call-shared-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Call shared depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-call-shared-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-field-shared-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Field shared depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-field-shared-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-field-shared-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Field shared depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-field-shared-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-field-shared-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Field shared depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-field-shared-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-if-mutable-result.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "If mutable result.",
+    "io": [
+      {
+        "input": "acc-if-mutable-result.1.in",
+        "output": "acc-if-mutable-result.1.out"
+      },
+      {
+        "input": "acc-if-mutable-result.2.in",
+        "output": "acc-if-mutable-result.2.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-if-shared-result.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "If shared result.",
+    "io": [
+      {
+        "input": "acc-if-shared-result.1.in",
+        "output": "acc-if-shared-result.1.out"
+      },
+      {
+        "input": "acc-if-shared-result.2.in",
+        "output": "acc-if-shared-result.2.out"
+      },
+      {
+        "input": "acc-if-shared-result.3.in",
+        "output": "acc-if-shared-result.3.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-mutable-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let mutable depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-mutable-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-mutable-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let mutable depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-mutable-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-mutable-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let mutable depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-mutable-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-shared-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let shared depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-shared-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-shared-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let shared depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-shared-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-let-shared-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Let shared depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-let-shared-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-loop-shared-result.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Loop shared result.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-loop-shared-result.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-method-mutable-argument.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Method mutable argument.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-method-mutable-argument.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-method-return-box-field.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Method return box field.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-method-return-box-field.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-method-shared-argument.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Method shared argument.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-method-shared-argument.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-array-element.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable array element.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-array-element.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-mutable-field.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Mutable field.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-mutable-field.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-explicit-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return explicit depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-explicit-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-explicit-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return explicit depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-explicit-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-explicit-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return explicit depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-explicit-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-mutable-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return mutable depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-mutable-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-mutable-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return mutable depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-mutable-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-mutable-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return mutable depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-mutable-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-tail-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return tail depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-tail-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-tail-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return tail depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-tail-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-return-tail-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Return tail depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-return-tail-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-qualified-push-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec qualified push depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-qualified-push-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-qualified-push-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec qualified push depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-qualified-push-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-vec-qualified-push-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Vec qualified push depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-vec-qualified-push-depth-3.default.out"
+      }
+    ]
+  }
+]

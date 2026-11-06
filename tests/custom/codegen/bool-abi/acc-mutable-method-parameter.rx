@@ -1,0 +1,15 @@
+use rx::core::*;
+
+struct Switch {
+    enabled: bool,
+}
+impl Switch {
+    fn apply(&self, mut b: bool) -> bool {
+        b ^= self.enabled;
+        b
+    }
+}
+fn main() {
+    let s = Switch { enabled: true };
+    println_i32(s.apply(false) as i32);
+}

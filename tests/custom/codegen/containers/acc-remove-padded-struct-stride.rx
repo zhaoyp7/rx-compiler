@@ -1,0 +1,25 @@
+use rx::core::*;
+
+struct Item {
+    flag: bool,
+    value: i32,
+    tail: bool,
+}
+fn item(n: i32) -> Item {
+    Item {
+        flag: true,
+        value: n,
+        tail: false,
+    }
+}
+fn main() {
+    let mut v = Vec::<Item>::new();
+    v.push(item(11));
+    v.push(item(22));
+    v.push(item(33));
+    let removed = v.remove(1);
+    println_i32(removed.value);
+    println_i32(v[1].value);
+    println_i32(v[1].flag as i32);
+    println_i32(v[1].tail as i32);
+}

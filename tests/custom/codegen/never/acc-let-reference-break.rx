@@ -1,0 +1,11 @@
+use rx::core::*;
+
+fn main() {
+    loop {
+        let r: &i32 = {
+            println_i32(1);
+            break;
+        };
+    }
+    println_i32(2);
+}

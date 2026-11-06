@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn main() {
+    let b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    let x = 9;
+    let mut r = &x;
+    r = &b;
+    println_i32(*r);
+}

@@ -1,0 +1,12 @@
+use rx::core::*;
+
+fn main() {
+    let mut b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    let mut x = 9;
+    {
+        let mut r: &mut i32 = &mut x;
+        r = &mut b;
+        *r = 23;
+    }
+    println_i32(**b);
+}

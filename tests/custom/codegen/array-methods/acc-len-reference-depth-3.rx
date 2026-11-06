@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn main() {
+    let a = [17, 19];
+    let r1 = &a;
+    let r2 = &r1;
+    let r3 = &r2;
+    println_i32(r3.len() as i32);
+}

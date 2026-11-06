@@ -1,0 +1,28 @@
+use rx::core::*;
+
+#[derive(PartialEq, Eq)]
+struct Item {
+    first: bool,
+    number: i32,
+    last: bool,
+}
+fn main() {
+    let a = Item {
+        first: true,
+        number: 17,
+        last: false,
+    };
+    let b = Item {
+        last: false,
+        number: 17,
+        first: true,
+    };
+    let c = Item {
+        first: true,
+        number: 17,
+        last: true,
+    };
+    println_i32((a == b) as i32);
+    println_i32((a != c) as i32);
+    println_i32((a == c) as i32);
+}

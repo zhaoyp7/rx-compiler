@@ -1,0 +1,7 @@
+use rx::core::*;
+
+fn main() {
+    let mut a = [17, 19];
+    let r = &mut a;
+    println_i32(r.len() as i32);
+}

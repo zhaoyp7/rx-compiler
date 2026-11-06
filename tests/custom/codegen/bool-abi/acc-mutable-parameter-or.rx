@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn combine(mut b: bool) -> bool {
+    b |= true;
+    b
+}
+fn main() {
+    println_i32(combine(false) as i32);
+}

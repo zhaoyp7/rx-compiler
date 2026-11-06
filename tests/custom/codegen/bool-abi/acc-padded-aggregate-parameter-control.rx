@@ -1,0 +1,25 @@
+use rx::core::*;
+
+#[derive(Clone, Copy)]
+struct Flags {
+    first: bool,
+    value: i32,
+    last: bool,
+}
+fn change(mut f: Flags) -> Flags {
+    f.first = !f.first;
+    f.last = !f.last;
+    f
+}
+fn main() {
+    let f = Flags {
+        first: false,
+        value: 17,
+        last: true,
+    };
+    let g = change(f);
+    println_i32(g.first as i32);
+    println_i32(g.value);
+    println_i32(g.last as i32);
+    println_i32(f.first as i32);
+}

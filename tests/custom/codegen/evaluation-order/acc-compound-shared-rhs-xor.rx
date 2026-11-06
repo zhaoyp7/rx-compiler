@@ -1,0 +1,16 @@
+use rx::core::*;
+
+fn rhs(value: &i32) -> &i32 {
+    println_i32(1);
+    value
+}
+fn index() -> usize {
+    println_i32(2);
+    0usize
+}
+fn main() {
+    let n = 2;
+    let mut a = [10];
+    a[index()] ^= rhs(&n);
+    println_i32(a[0]);
+}

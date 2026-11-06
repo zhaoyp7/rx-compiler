@@ -1,0 +1,14 @@
+use rx::core::*;
+
+#[derive(PartialEq, Eq)]
+struct Item {
+    value: i32,
+}
+fn main() {
+    let a = Item { value: 17 };
+    let b = Item { value: 17 };
+    let x = &a;
+    let y = &b;
+    println_i32((x == y) as i32);
+    println_i32((&x == &y) as i32);
+}

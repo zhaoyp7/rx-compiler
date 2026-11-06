@@ -1,0 +1,9 @@
+use rx::core::*;
+
+fn view(b: &Box<Box<i32>>) -> &i32 {
+    return b;
+}
+fn main() {
+    let b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    println_i32(*view(&b));
+}

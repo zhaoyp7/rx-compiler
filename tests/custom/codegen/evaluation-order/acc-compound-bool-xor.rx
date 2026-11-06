@@ -1,0 +1,15 @@
+use rx::core::*;
+
+fn rhs() -> bool {
+    println_i32(1);
+    true
+}
+fn index() -> usize {
+    println_i32(2);
+    0usize
+}
+fn main() {
+    let mut a = [false];
+    a[index()] ^= rhs();
+    println_i32(a[0] as i32);
+}

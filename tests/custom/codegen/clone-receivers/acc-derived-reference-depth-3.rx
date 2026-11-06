@@ -1,0 +1,15 @@
+use rx::core::*;
+
+#[derive(Clone)]
+struct Item {
+    value: i32,
+}
+fn main() {
+    let s = Item { value: 17 };
+    let r1 = &s;
+    let r2 = &r1;
+    let r3 = &r2;
+    let c: &&Item = r3.clone();
+    println_i32(c.value);
+    println_i32(s.value);
+}

@@ -1,0 +1,16 @@
+use rx::core::*;
+
+fn sink(r: &mut i32) {
+    println_i32(99);
+}
+fn work() {
+    sink({
+        println_i32(2);
+        return;
+    });
+    println_i32(99);
+}
+fn main() {
+    work();
+    println_i32(3);
+}

@@ -1,0 +1,15 @@
+use rx::core::*;
+
+struct Reader {
+    offset: i32,
+}
+impl Reader {
+    fn read(&self, value: &i32) -> i32 {
+        self.offset + *value
+    }
+}
+fn main() {
+    let r = Reader { offset: 3 };
+    let b = Box::<Box<i32>>::new(Box::<i32>::new(17));
+    println_i32(r.read(&b));
+}

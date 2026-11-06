@@ -1,0 +1,122 @@
+[
+  {
+    "source": "acc-len-box-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len box depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-box-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-box-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len box depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-box-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-box-parameter.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len box parameter.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-box-parameter.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-box-temporary-once.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len box temporary once.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-box-temporary-once.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-mutable-reference.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len mutable reference.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-mutable-reference.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-reference-depth-1.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len reference depth 1.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-reference-depth-1.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-reference-depth-2.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len reference depth 2.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-reference-depth-2.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-reference-depth-3.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len reference depth 3.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-reference-depth-3.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-reference-parameter.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len reference parameter.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-reference-parameter.default.out"
+      }
+    ]
+  },
+  {
+    "source": "acc-len-temporary-control.rx",
+    "stage": "codegen",
+    "compilation_success": true,
+    "description": "Len temporary control.",
+    "io": [
+      {
+        "input": null,
+        "output": "acc-len-temporary-control.default.out"
+      }
+    ]
+  }
+]
