@@ -523,26 +523,33 @@ coercion：
 | P10 | vec-index-mutability、box-and-moves、references-and-mutability、reference-coercions、reference-lub、scalar-reference-operators | 通过 |
 | P11 | vec-operations、aggregate-arguments、recursive-traits、comprehensive-owned-tree | 通过 |
 | P12 | `official:semantic` 全量 | 236/236 |
-| P12 | `tests/custom` | 90/90 |
+| P12 | `tests/custom/semantic` | 90/90（P12 历史验收记录） |
 
 ### 10.2 custom 测试目录
 
 ```
 tests/custom/
-├── names-and-entry/                 11
-├── constants-and-layout/            11
-├── expressions-and-control/         11
-├── methods-and-derive/              18
-├── references-and-mutability/       19
-├── containers/                      17
-└── io/                               3
+├── semantic/                       122
+│   ├── names-and-entry/              14
+│   ├── constants-and-layout/         18
+│   ├── expressions-and-control/      12
+│   ├── methods-and-derive/           26
+│   ├── references-and-mutability/    32
+│   ├── containers/                   17
+│   └── io/                            3
+└── codegen/                        162（171 组 I/O）
 ```
+
+原有语义用例迁到 `semantic/`，源码及 manifest 内容保持不变。新增运行用例放在
+`codegen/`，由 runner 同时用于 IR 和后端阶段；覆盖范围与预期结果说明见
+[`tests/custom/README.md`](../tests/custom/README.md)。
 
 运行：
 
 ```bash
-make test FILTER=custom STAGE=semantic
-make test FILTER=custom:containers STAGE=semantic
+make test FILTER=custom:semantic STAGE=semantic
+make test FILTER=custom:semantic:containers STAGE=semantic
+make test FILTER=custom:codegen STAGE=ir
 ```
 
 ### 10.3 测试目录到规则的映射
