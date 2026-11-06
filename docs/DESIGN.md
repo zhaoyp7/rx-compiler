@@ -1,7 +1,7 @@
 # Rx 编译器设计文档
 
-> 阶段一（AST + 语义）设计记录。本文件随阶段推进更新。
-> 当前进度：P12（收尾）；official semantic 236/236，custom semantic 90/90。
+> 记录 AST、语义分析与 LLVM IR 的实现设计。
+> 第 1–12 节保留前端设计与历史验收记录；第 13 节说明当前 IR 实现及后端衔接约定。
 
 ## 1. AST 总体设计
 
@@ -34,7 +34,9 @@ Crate { items: vector<ItemPtr> }   // AST 根，不继承 Node
 
 ### 遍历机制
 
-`accept(AstVisitor&)` 双分派。后续每个 pass（dump、符号收集、类型检查、IR）实现一个 `AstVisitor` 子类；新增节点会强制所有 pass 处理（纯虚编译报错）。
+`accept(AstVisitor&)` 提供双分派接口，`DumpVisitor` 使用该接口遍历 AST。
+当前语义分析与 IR lowering 通过 `dynamic_cast` 分发节点；新增节点时，需要同步检查
+这两层的处理入口，不能只依赖 visitor 的纯虚函数检查覆盖率。
 
 ### 内存模型
 
@@ -529,18 +531,18 @@ coercion：
 
 ```
 tests/custom/
-├── semantic/                       122
-│   ├── names-and-entry/              14
-│   ├── constants-and-layout/         18
-│   ├── expressions-and-control/      12
-│   ├── methods-and-derive/           26
-│   ├── references-and-mutability/    32
-│   ├── containers/                   17
-│   └── io/                            3
-└── codegen/                        162（171 组 I/O）
+├── semantic/
+│   ├── names-and-entry/
+│   ├── constants-and-layout/
+│   ├── expressions-and-control/
+│   ├── methods-and-derive/
+│   ├── references-and-mutability/
+│   ├── containers/
+│   └── io/
+└── codegen/
 ```
 
-原有语义用例迁到 `semantic/`，源码及 manifest 内容保持不变。新增运行用例放在
+原有语义用例迁移到 `semantic/` 时保留原内容，后续语义回归也加入该目录。运行用例放在
 `codegen/`，由 runner 同时用于 IR 和后端阶段；覆盖范围与预期结果说明见
 [`tests/custom/README.md`](../tests/custom/README.md)。
 
@@ -642,3 +644,314 @@ echo $?   # 1
 make test FILTER=official:semantic STAGE=semantic
 make test FILTER=custom STAGE=semantic
 ```
+
+## 13. LLVM IR 设计
+
+### 13.1 编译流程与职责
+
+IR 阶段读取已经通过语义分析的 AST 和旁表，不再推导名字、方法候选、类型布局或
+derive 能力。`src/main.cpp` 的 `--stage ir` 分支先构建 AST、执行语义分析，
+再调用 `IrGenerator::generate(std::ostream&)`，将 LLVM IR 文本写入 `-o` 指定的文件。
+
+```text
+Crate + SemanticAnalyzer 旁表
+            │
+            ▼
+IrGenerator + TypeMapper + IrBuilder
+            │
+            ▼
+Module → Function → BasicBlock → Instruction
+            │ validate / print
+            ▼
+           .ll
+            │ clang-22（IR 阶段验证）
+            ▼
+      RV32IM 汇编 + runtime.s → REIMU → stdout 比对
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/ir/ir.h` / `ir.cpp` | IR 数据结构、基本结构校验、LLVM 文本输出、机器入口 wrapper |
+| `src/ir/builder.h` / `builder.cpp` | 创建指令、临时值、基本块和入口块中的栈槽 |
+| `src/ir/type.h` / `type.cpp` | `TypeId` 到 LLVM 类型的映射、结构体和 Vec 类型声明 |
+| `src/ir/generator.h` / `generator.cpp` | AST lowering、引用转换、控制流、容器、clone/eq |
+| `runtime/runtime.c` | I/O 与堆分配的 C ABI 实现 |
+| `config.mk` / `scripts/test.py` | 构建 runtime、调用编译器、Clang 和 REIMU，检查输出 |
+
+所有源函数都进入实际 lowering；失败会返回错误并让驱动退出 1。当前实现没有
+`supports*` 预筛选，也不会将无法处理的函数替换为空函数或仅留下声明。
+
+### 13.2 目标与类型表示
+
+模块固定输出：
+
+```llvm
+target triple = "riscv32-unknown-elf"
+target datalayout = "e-m:e-p:32:32-i64:64-n32-S128"
+```
+
+目标为 RV32IM / ILP32。`TypeMapper::valueType()` 描述表达式值、参数和返回值的
+LLVM 类型，`storageType()` 描述源变量、字段、数组元素和堆内存中的表示。
+
+| Rx 类型 | LLVM 值表示 | 存储表示 | 大小 / 对齐（字节） |
+| --- | --- | --- | --- |
+| `i32`、`u32`、`isize`、`usize` | `i32` | `i32` | 4 / 4 |
+| `bool` | `i1` | `i8` | 1 / 1 |
+| `&T`、`&mut T`、`Box<T>` | `ptr` | `ptr` | 4 / 4 |
+| `[T; N]` | `[N x storageType(T)]` | 同左 | `N * size(T)` / `align(T)` |
+| 结构体 `S` | `%struct.S` | 同左，字段使用存储类型 | 语义层计算的布局 |
+| `Vec<T>` | `%struct.Vec` | 同左 | 12 / 4 |
+| `()`、`!` | `void` | 不分配可观察的数据存储 | 0 / 1 |
+
+`void` 用于函数签名；unit 和 Never 都不产生普通表达式值，但控制流状态不同，
+由 `LowerResult` 区分。聚合值保留字段的存储表示，例如 bool 数组的值类型也是
+`[N x i8]`，不会转换成 `[N x i1]`。
+
+`toStorageValue()` 在 bool 写入时执行 `zext i1 → i8`；`fromStorageValue()` 在读取
+时执行 `trunc i8 → i1`，其他类型原样通过。显式源级 cast 由表达式 lowering 单独处理。
+
+结构体字段按声明顺序布局，并满足字段对齐及尾部对齐；数组元素连续排列。
+分配大小与对齐读取 `SemanticAnalyzer::typeSize()` / `typeAlign()`，其中结构体使用
+已计算的 `StructLayout`。字段、数组和 Vec 元素地址使用 GEP，元素步长由 LLVM 类型确定。
+
+### 13.3 内存 IR 与构建上下文
+
+`Module` 保存命名类型和函数；`Function` 保存签名、声明标记和基本块；
+`BasicBlock` 保存标签和有序指令。当前指令子集为：
+
+```text
+RET  CALL  ALLOCA  LOAD  STORE  BINARY  ICMP  CAST  BR  UNREACHABLE  GEP
+```
+
+`Instruction` 用 `kind/result/type/op/operands` 描述指令，值名、类型和操作数仍使用
+字符串；CALL 参数和 GEP 索引中包含显式的 LLVM 类型文本。它是 LLVM 子集的内存表示，
+目前没有独立的 Value 对象或通用 LLVM 文本解析器。
+
+`IrBuilder` 管理当前基本块以及函数内唯一的 `%tN`、`%tmp.N` 和标签编号。
+`LowerContext` 保存 builder、类型映射、语义分析器、当前返回类型、参数 SSA 值和循环栈。
+循环上下文记录 break/continue 目标、结果槽位和结果类型。
+
+### 13.4 LowerResult 与表达式入口
+
+| 返回形式 | `ok` | `terminated` | `hasValue` | 含义 |
+| --- | --- | --- | --- | --- |
+| `failResult()` | false | false | false | lowering 失败 |
+| `unitResult()` | true | false | false | 正常完成，无数据值 |
+| `valueResult(v)` | true | false | true | 正常完成，结果为 `v` |
+| `terminatedResult()` | true | true | false | 当前路径已结束，不应继续发射指令 |
+
+调用子表达式后，应先传播失败和 `terminated`，再检查需要的数据值及类型转换。
+例如 `return` 出现在实参或容器初始化中时，外层不得继续发出 call、分配或 store。
+这里的 `terminated` 表示当前路径结束；`break`、`continue` 也返回该状态，并不代表整个
+源函数已经返回。
+
+| 入口 | 返回结果的含义 |
+| --- | --- |
+| `lowerExpr()` | 普通表达式值；统一分发调用、赋值、块及控制流表达式 |
+| `lowerPlace()` | 可寻址位置的地址；不自动将该位置 load 成普通值 |
+| `lowerPlaceOrTemp()` | 优先使用已有位置；值表达式需要地址时保存到临时槽位 |
+| `lowerAddress()` | 为字段、索引和接收者定位地址，按当前操作需要穿过 Ref/Box |
+| `lowerExprToType()` | 按语义层确定的期望类型 lowering，并处理允许的引用转换 |
+| `lowerReceiverValueToType()` | 接收者求值一次，逐层读取到已确定的 Self 类型 |
+
+`lowerStmt()` 只处理 let 和表达式语句。表达式语句统一调用 `lowerExpr()`，传播失败和
+提前终止状态，并丢弃正常结果。`lowerBlock()` 顺序处理语句，最后将期望类型传给块尾
+表达式。赋值和复合赋值的语义结果为 unit，因此既可作为带分号的语句，也可作为块尾。
+
+### 13.5 栈槽、参数与聚合值
+
+源变量槽位统一由 builder 的 `symbolId → slot` 映射管理，`ensureSlot()` 保证同一符号
+只创建一个槽位。变量读取先查槽位并 load，再查 `paramValues` 中的参数 SSA 值；
+这个顺序保证可变参数修改后读取到最新值。当前不再维护单独的 `paramSlots` 映射。
+
+可变参数，以及结构体、数组、Vec 参数，在函数入口复制到自己的槽位；其他参数通常
+直接使用传入的 SSA 值。变量槽位使用存储类型，bool 参数进入槽位时也需执行 `i1 → i8`。
+
+所有 `ensureSlot()` / `ensureTemp()` 产生的 alloca 都插入入口块，位于已有终止指令之前。
+控制流结果槽位属于编译器内部临时量，可以使用 `valueType()`，例如 bool 合流槽位为
+`i1`；这与源变量或字段使用 `i8` 不冲突。
+
+结构体与数组按值传参、返回和赋值，数组不退化为指针。构造聚合值时，先创建临时存储，
+按字段或元素写入，再 load 整个聚合值。结构体初始化按源码字段出现顺序求值，字段地址
+仍按声明布局计算；`[expr; N]` 只求值一次 expr，再复制已得到的值。
+Copy/移动和 repeat 的合法性由语义层检查；普通按值传递不会隐式调用 clone。
+
+### 13.6 期望类型、引用与求值顺序
+
+let 初始化、赋值 RHS、函数和方法实参、字段和数组元素、Box/Vec 插入值、return、
+if 分支和带值 break 均在对应位置传入期望类型。`LowerContext::returnTypeId` 保存当前
+源函数的返回类型，使显式 return 和函数体尾表达式使用同一套转换规则。
+
+`coerceValueToType()` 在正常求值后先处理无期望类型及同类型情况，其余转换限于语义层
+已经批准的引用 coercion。需要穿过内层 Ref/Box 时，逐层 load 指针；共享性差异若不改变
+物理表示，则不生成额外指令。块表达式直接把期望类型传给 `lowerBlock()`，避免在内部
+完成转换后，再按原始块类型转换一次。
+
+接收者转换以方法已确定的 Self 为终点。例如 clone 需要保留引用结果时，不能把所有
+引用层都无条件剥离。共享引用的 clone 复制引用本身，Box 的 clone 才递归复制拥有值。
+
+普通二元表达式先求值 LHS，再求值 RHS；赋值和复合赋值先求值 RHS，再计算目标地址，
+复合赋值在此之后读取目标旧值。引用形式的标量运算分别处理左右两侧的解引用，两个
+判断不能改成互斥的 `if/else if`。移位量显式与 31 做按位与，整数运算不添加
+`nsw` / `nuw` 标记，以保留规定的回绕行为。
+
+### 13.7 控制流与合流
+
+if 和有值 loop 使用入口块中的结果槽位合流，不生成 phi。各个正常到达的分支先把
+转换后的结果写入槽位，再跳转合流块；已经 return/break/continue 的分支不补跳转。
+两个 if 分支均终止时，整个 if 返回 `terminatedResult()`，无需创建可达的合流块。
+
+`&&` / `||` 使用条件分支，仅在需要时进入 RHS 块，并通过 `i1` 临时槽位取得结果。
+while 的 continue 目标是条件块；loop 的 continue 目标是循环体入口。带值 break
+按循环结果类型转换，写入结果槽位后跳转出口。无出口的 Never loop 不生成正常结果。
+
+return 先处理返回表达式；如果该表达式本身已终止，直接传播状态，避免重复 ret。
+语义分析仍检查不可达源代码，IR lowering 可以在当前路径终止后停止生成后续语句。
+
+### 13.8 函数命名、入口与调用约定
+
+| 源函数或辅助函数 | LLVM 符号 |
+| --- | --- |
+| 普通函数 `f` | `_rx_fn_f` |
+| 结构体 `S` 的方法或关联函数 `f` | `_rx_m_S_f` |
+| 源 `main` | `_rx_main` |
+| 机器入口 wrapper | `main` |
+| `S` 的派生 clone / equality | `_rx_clone_S` / `_rx_eq_S` |
+
+方法接收者作为显式第一参数传递，按值接收者保留值表示，引用接收者传 `ptr`。
+I/O 和分配辅助函数使用固定的外部符号。
+
+机器入口的行为为：
+
+```llvm
+define i32 @main() {
+entry:
+  call void @_rx_main()
+  ret i32 0
+}
+```
+
+源代码对 main 的调用，包括递归调用，目标都是 `_rx_main`，其返回只恢复源调用者。
+IR 阶段由 Clang 将函数签名映射到 RV32IM 调用约定；当前 IR 保留按值聚合签名，尚未
+实现自研后端的寄存器分配、栈帧和聚合参数机器级传递。
+
+### 13.9 Box、Vec 与堆内存
+
+Box 的值是指向 T 存储的 `ptr`。构造时先求值并转换内容，再申请 `size(T)`、
+`align(T)` 对应的空间，将内容按存储类型写入。
+
+所有 Vec 实例共用以下 LLVM 命名类型，元素类型由语义 TypeId 和 GEP 保留：
+
+```llvm
+%struct.Vec = type { ptr, i32, i32 }
+```
+
+| 字段 | 索引 | 字节偏移 | 含义 |
+| --- | --- | --- | --- |
+| data | 0 | 0 | 连续元素缓冲区地址 |
+| len | 1 | 4 | 已初始化元素数量 |
+| cap | 2 | 8 | 可容纳元素数量 |
+
+`new()` 返回 `{null, 0, 0}`，不申请元素缓冲区；`len()` 读取 len，`is_empty()` 比较
+len 是否为零。索引对 data 使用元素存储类型的 GEP，不携带切片长度或 lifetime 数据。
+
+push 的插入值先完成求值和类型转换，再修改容器：
+
+1. `len < cap` 时直接复用缓冲区。
+2. 需要扩容时，零容量取 4，非零容量翻倍；分配 `newCap * size(T)` 字节。
+3. 旧 len 非零时，用 memmove 移动 `len * size(T)` 字节，随后更新 data/cap。
+4. 在 data[len] 写入新值，最后更新 len。
+
+扩容移动已有元素不会调用 clone。remove 先读取待移出的值，再用 memmove 将后续
+元素左移，最后将 len 减一并返回原值；cap 保持不变，删除尾元素时跳过移动。
+这里可能出现重叠源/目标区域，因此使用 memmove。
+
+### 13.10 clone、相等比较与递归 derive
+
+`lowerCloneValue()` 根据具体源类型生成复制行为：
+
+| 类型 | clone 行为 |
+| --- | --- |
+| 整数、bool | 直接返回值 |
+| 合法可克隆的共享引用 | 复制地址，不复制引用目标 |
+| Box | clone 内容，再分配并初始化新的拥有存储 |
+| Vec | 非空时按 len 分配缓冲区，运行时循环逐元素 clone；结果 cap 等于 len |
+| 数组 | 按固定长度展开元素 clone |
+| 结构体 | 调用 `_rx_clone_S(ptr self) -> %struct.S`，逐字段 clone |
+
+空 Vec 的 clone 保持 data 为 null、len/cap 为零，不分配缓冲区。支持哪些类型的
+clone 由语义层决定；lowering 中的指针表示不扩大语言允许的 Clone 能力。
+
+派生相等辅助函数签名为 `_rx_eq_S(ptr lhs, ptr rhs) -> i1`。结构体和数组比较字段或
+元素值，不读取 padding 进行整体字节比较。Box 比较内容；引用相等按语言要求比较
+目标值；Vec 先比较长度，再按顺序比较元素，遇到不等即退出。`!=` 对相等结果取反。
+
+递归或相互递归的结构体可能通过 Box/Vec 在运行时形成有限的拥有树。生成阶段先收集
+全部派生函数，为 Module 的函数 vector 预留容量，再先创建一组辅助函数，后填函数体。
+clone 组完成后处理 equality 组，避免生成函数体时递归展开结构体类型，同时保证保存的
+`Function*` 不因 vector 扩容失效。运行时递归在空 Vec 等实际数据边界结束。
+
+### 13.11 Runtime 边界
+
+生成模块声明以下接口：
+
+```llvm
+declare i32 @get_i32()
+declare void @print_i32(i32)
+declare void @println_i32(i32)
+declare ptr @__rx_alloc(i32, i32)
+declare ptr @memmove(ptr, ptr, i32)
+```
+
+`runtime/runtime.c` 通过 scanf/printf 实现 I/O，通过 malloc 实现 `__rx_alloc(size, align)`；
+当前 align 参数未参与分配计算。生成代码负责计算字节数和 1 或 4 字节的对齐，
+memmove 由 REIMU 提供。runtime 不定义 main，也不解释源程序或 IR。
+
+`config.mk` 的 BUILD 将 C runtime 编成 RV32IM/ILP32 汇编，测试 runner 与程序汇编
+一起交给 REIMU。I/O、分配和内存移动跨越外部 C ABI，后续自研后端必须保留这些接口，
+并满足 psABI 的参数、返回值、寄存器保存和栈对齐要求。
+
+按照[后端与堆分配契约](../rx-spec-zh/16-backend/16.00-backend.md)，有效分配计算适合
+usize，不需要额外的动态溢出检查；允许保留旧缓冲区，不要求实现 free 或递归析构。
+索引和 remove 的有效性依赖语言规定的有效测试前提，当前不生成边界检查或 panic。
+
+### 13.12 校验与测试合同
+
+`BasicBlock::validate()` 要求标签和指令非空，且恰好最后一条是终止指令。
+`Function::validate()` 检查签名及函数体基本块；`Module::validate()` 遍历函数检查。
+这些是基本结构检查，目前不完整验证操作数类型、SSA 定义与支配关系、标签引用或调用签名。
+例如把 ptr 误用为 i32 操作数，仍需由 Clang 的 LLVM IR 检查发现。
+
+`Module::print()` 校验后依次输出 target、命名类型、声明和定义。测试 runner 从
+`stage=codegen` 的 manifest 条目自动派生 IR 测试，依次检查：编译器成功生成文件、
+Clang 接受该 IR、REIMU 执行成功，以及 stdout 与预期逐字节相同。
+
+```bash
+# 语义回归
+make test STAGE=semantic
+
+# 全量 IR 与运行结果验证
+make test STAGE=ir
+
+# 针对某个规则定位问题
+make test FILTER=custom:codegen:expression-dispatch STAGE=ir
+make test FILTER=official:codegen:scalar-reference-operators STAGE=ir
+```
+
+测试用例只保存源码、manifest 和确定的输入/预期输出，运行日志与中间产物由 runner
+写入 `target/tests/`。目录说明见 [custom README](../tests/custom/README.md)。
+
+### 13.13 当前简化与后端衔接
+
+当前没有 phi 或寄存器分配，合流与可变变量依赖栈槽；Vec clone 仍逐元素处理，
+固定长度数组的 clone/eq 仍展开生成；派生 clone/eq 辅助函数即使没有调用也会生成。
+这些都是当前实现选择，后续优化必须保留值语义和求值顺序。
+
+`IrGenerator::generate()` 目前在函数内构建 Module 并直接打印，还没有独立的
+`buildModule()` 接口。衔接自研后端时，应先分离模块构建与文本输出，再明确内存 IR 的
+类型和操作数访问接口，保留 `.ll` 输出作为验证手段。最终程序汇编必须由自研后端生成，
+Clang 可以继续用于 IR 验证和 C runtime 编译。
+
+后端需要延续 bool 的读写转换、结构体/数组/Vec 布局、源与机器 main 的分离、
+按值聚合语义及 runtime ABI。机器级调用约定可以单独设计，但外部边界必须符合
+RV32IM/ILP32 psABI；不能直接把 LLVM 聚合值当成一个 32 位寄存器。
