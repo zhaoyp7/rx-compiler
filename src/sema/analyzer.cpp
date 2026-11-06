@@ -2116,7 +2116,6 @@ TypeId SemanticAnalyzer::inferBinary(const BinaryExpr &binary) {
   return res;
 }
 TypeId SemanticAnalyzer::inferAssign(const AssignExpr &assign) {
-  TypeId res = InvalidType;
   TypeId l_id = infer(*assign.lhs, InvalidType);
   if (!isPlace(*assign.lhs) || !isMutablePlace(*assign.lhs)) {
     error();
@@ -2166,7 +2165,7 @@ TypeId SemanticAnalyzer::inferAssign(const AssignExpr &assign) {
       }
     }
   }
-  return res;
+  return types.intern(TypeInfo{TypeKind::Unit});
 }
 TypeId SemanticAnalyzer::inferUnary(const UnaryExpr &unary) {
   TypeId res = InvalidType;
@@ -2571,7 +2570,7 @@ bool SemanticAnalyzer::tryInferBuiltinMethodCall(const MethodCallExpr &method,
       error();
     } else {
       TypeId a = infer(*method.args[0], elem);
-      if (a != InvalidType && elem != InvalidType && a != elem)
+      if (a != InvalidType && elem != InvalidType && !checkCoercion(*method.args[0], a, elem))
         error();
     }
     result = unitType();
@@ -2767,5 +2766,62 @@ const ConstVal *SemanticAnalyzer::constValue(int symbol) const {
     return nullptr;
   }
   return &it->second;
+}
+bool SemanticAnalyzer::typeSizeAlignValue(TypeId id, uint32_t &size,
+                                          uint32_t &align) const {
+  if (id == InvalidType) {
+    size = 0;
+    align = 1;
+    return false;
+  }
+  const TypeInfo &info = types.get(id);
+  TypeKind kind = info.kind;
+  if (kind == TypeKind::I32 || kind == TypeKind::Isize) {
+    size = align = 4;
+  } else if (kind == TypeKind::U32 || kind == TypeKind::Usize) {
+    size = align = 4;
+  } else if (kind == TypeKind::Bool) {
+    size = align = 1;
+  } else if (kind == TypeKind::Unit || kind == TypeKind::Never) {
+    size = 0;
+    align = 1;
+  } else if (kind == TypeKind::Ref) {
+    size = align = 4;
+  } else if (kind == TypeKind::Array) {
+    bool flag = typeSizeAlignValue(info.inner, size, align);
+    if (!flag) {
+      return false;
+    }
+    size *= info.len;
+  } else if (kind == TypeKind::Box) {
+    size = align = 4;
+  } else if (kind == TypeKind::Vec) {
+    size = 12;
+    align = 4;
+  } else if (kind == TypeKind::Struct) {
+    auto it = structLayouts.find(info.structId);
+    if (it == structLayouts.end()) {
+      return false;
+    }
+    size = it->second.size;
+    align = it->second.align;
+  } else {
+    return false;
+  }
+  return true;
+}
+uint32_t SemanticAnalyzer::typeSize(TypeId id) const {
+  uint32_t size = 0, align = 1;
+  if (!typeSizeAlignValue(id, size, align)) {
+    return 0;
+  }
+  return size;
+}
+uint32_t SemanticAnalyzer::typeAlign(TypeId id) const {
+  uint32_t size = 0, align = 1;
+  if (!typeSizeAlignValue(id, size, align)) {
+    return 1;
+  }
+  return align;
 }
 } // namespace rx

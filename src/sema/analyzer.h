@@ -46,6 +46,9 @@ public:
   int structFieldIndex(int structId, const std::string &name) const;
   const StructLayout *structLayout(int structId) const;
   const ConstVal *constValue(int symbol) const;
+  bool typeSizeAlignValue(TypeId id, uint32_t &size, uint32_t &align) const;
+  uint32_t typeSize(TypeId id) const;
+  uint32_t typeAlign(TypeId id) const;
 
 private:
   std::vector<Symbol> symbols;
