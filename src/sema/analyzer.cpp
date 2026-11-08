@@ -507,17 +507,6 @@ bool SemanticAnalyzer::calcConstValue(const ConstValue &cv, ConstType expected,
   }
   return true;
 }
-bool SemanticAnalyzer::calcConstLength(const ConstValue &cv) {
-  ConstVal ans;
-  if (!calcConstValue(cv, ConstType::Usize, ans)) {
-    return false;
-  }
-  if (ans.type != ConstType::Usize) {
-    error();
-    return false;
-  }
-  return true;
-}
 bool SemanticAnalyzer::calcConstSymbol(int id, ConstVal &out) {
   int state = constState[id];
   if (state == 1) {
@@ -1549,7 +1538,7 @@ bool SemanticAnalyzer::supportsEq(TypeId id,
       return true;
     }
     const StructDecl *sd = dynamic_cast<const StructDecl *>(symbols[sid].decl);
-    if (sd == nullptr || !sd->derives.partialEq || !sd->derives.partialEq) {
+    if (sd == nullptr || !sd->derives.partialEq || !sd->derives.eq) {
       return false;
     }
     visiting.insert(sid);

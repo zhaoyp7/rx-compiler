@@ -109,7 +109,6 @@ private:
 
   bool calcConstValue(const ConstValue &cv, ConstVal &out);
   bool calcConstValue(const ConstValue &cv, ConstType expected, ConstVal &out);
-  bool calcConstLength(const ConstValue &cv);
   bool calcConstSymbol(int id, ConstVal &out);
   int resolveConstPath(const ConstPath &path);
   ConstType typeFromSyntax(const TypeSyntax &type, bool &ok);
